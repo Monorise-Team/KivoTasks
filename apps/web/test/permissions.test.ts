@@ -19,9 +19,14 @@ import {
 import {
   assertPermission,
   assertPermissionScope,
+  canReadTeam,
+  canReadTeamIssues,
+  getPermissionSnapshot,
   getUserCapabilities,
   invalidatePermissionCache,
   PRODUCT_ACCESS_REQUIRED_MESSAGE,
+  resolveReadableIssuesFilter,
+  resolveReadableTeamsFilter,
 } from "@/server/permissions";
 
 const FAKE_CORE_URL = "http://core.local.test";
@@ -247,6 +252,60 @@ describe("uprawnienia KivoTasks z migawki MonoriseCore i pamięć podręczna", (
       manageTeams: true,
       createTeams: true,
       manageProjects: true,
+    });
+  });
+
+  it("osoba z samym issues.write ma readIssues w capabilities oraz widzi zespół i zadania w swoim zakresie", async () => {
+    const writerRoleId = acme.addRole({
+      name: "Tylko zapis zadań",
+      product: "kivotasks",
+      permissions: [KIVOTASKS_PERMISSIONS.keys["issues.write"]],
+    }).id;
+    const projectOnlyRoleId = acme.addRole({
+      name: "Tylko projekty",
+      product: "kivotasks",
+      permissions: [KIVOTASKS_PERMISSIONS.keys["projects.manage"]],
+    }).id;
+
+    const piotr = acme.addEmployee({ firstName: "Piotr", lastName: "Zapisujący", products: ["kivotasks"] });
+    acme.assignRole({
+      accountId: piotr.accountId,
+      roleId: writerRoleId,
+      scope: { type: "UNIT", unitId: unitMagazynId },
+    });
+    const piotrCaller = makeCaller(acme.id, piotr.accountId, piotr.employeeId);
+    const snapshot = await getPermissionSnapshot(piotrCaller);
+
+    expect(await getUserCapabilities(piotrCaller)).toEqual({
+      hasProductAccess: true,
+      readIssues: true,
+      writeIssues: true,
+      manageTeams: false,
+      createTeams: false,
+      manageProjects: false,
+    });
+    expect(canReadTeam(snapshot, unitMagazynId)).toBe(true);
+    expect(canReadTeamIssues(snapshot, unitMagazynId)).toBe(true);
+    expect(canReadTeam(snapshot, unitKrakowId)).toBe(false);
+    expect(canReadTeamIssues(snapshot, unitKrakowId)).toBe(false);
+    expect(await resolveReadableIssuesFilter(piotrCaller)).toEqual([unitMagazynId]);
+    expect(await resolveReadableTeamsFilter(piotrCaller)).toEqual([unitMagazynId]);
+
+    // Osoba z samym projects.manage ma NONE dla issues.read, issues.write i teams.manage -> 403
+    const marek = acme.addEmployee({ firstName: "Marek", lastName: "Projektowy", products: ["kivotasks"] });
+    acme.assignRole({
+      accountId: marek.accountId,
+      roleId: projectOnlyRoleId,
+      scope: { type: "ORGANIZATION" },
+    });
+    const marekCaller = makeCaller(acme.id, marek.accountId, marek.employeeId);
+    await expect(resolveReadableIssuesFilter(marekCaller)).rejects.toMatchObject({
+      status: 403,
+      code: "PERMISSION_DENIED",
+    });
+    await expect(resolveReadableTeamsFilter(marekCaller)).rejects.toMatchObject({
+      status: 403,
+      code: "PERMISSION_DENIED",
     });
   });
 

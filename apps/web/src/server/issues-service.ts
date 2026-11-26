@@ -3,7 +3,6 @@ import {
   CreateIssueInput,
   CreateIssueRelationInput,
   IssueListQuery,
-  KIVOTASKS_PERMISSIONS,
   SearchIssuesQuery,
   UpdateIssueInput,
   type IssueDetail,
@@ -12,7 +11,6 @@ import {
   type PaginatedResult,
   type SearchIssuesResult,
 } from "@kivotasks/contracts";
-import { scopeOf } from "@monorise-team/permissions";
 import { ApiFailure } from "./api";
 import type { Caller } from "./auth";
 import { listTeamMembersWithAccount } from "./core-directory";
@@ -25,14 +23,13 @@ import {
 } from "./issue-helpers";
 import { getIssuesStore, type AssigneeStoreFilter, type IssueLookup, type ParentStoreFilter } from "./issues-store";
 import {
-  assertPermissionScope,
   canReadTeam,
   canReadTeamIssues,
   canWriteTeamIssues,
-  mergeTeamFilters,
   PERMISSION_DENIED_MESSAGE,
+  readableIssueTeamsFilter,
   requireAuthorizedSnapshot,
-  teamFilterFromScope,
+  resolveReadableIssuesFilter,
 } from "./permissions";
 
 const SEARCH_MAX_RESULTS = 20;
@@ -62,7 +59,7 @@ export async function listIssues(
   caller: Caller,
   searchParams: URLSearchParams,
 ): Promise<PaginatedResult<IssueListItem>> {
-  const readScope = await assertPermissionScope(caller, KIVOTASKS_PERMISSIONS.keys["issues.read"]);
+  const readableTeamIds = await resolveReadableIssuesFilter(caller);
   const parsed = IssueListQuery.parse(queryParamsToRecord(searchParams));
   const cursor = parsed.cursor ? decodeIssueCursor(parsed.cursor, parsed.sort) : undefined;
 
@@ -87,7 +84,7 @@ export async function listIssues(
   const tsQuery = trimmedQuery ? buildPrefixTsQuery(trimmedQuery) : null;
 
   return getIssuesStore().listIssues(caller, {
-    readableTeamIds: teamFilterFromScope(readScope),
+    readableTeamIds,
     teamId: parsed.teamId,
     stateId: parsed.stateId,
     stateCategory: parsed.stateCategory,
@@ -110,8 +107,7 @@ export async function createIssue(caller: Caller, rawInput: unknown): Promise<Is
   const input = CreateIssueInput.parse(rawInput);
 
   // 404 przed 403 dla zespołów spoza zasięgu osoby
-  const canReadOrWrite = canReadTeam(snapshot, input.teamId) || canWriteTeamIssues(snapshot, input.teamId);
-  if (!canReadOrWrite) {
+  if (!canReadTeam(snapshot, input.teamId)) {
     throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono zespołu");
   }
   const team = await getIssuesStore().findTeamById(caller, input.teamId);
@@ -142,7 +138,7 @@ export async function createIssue(caller: Caller, rawInput: unknown): Promise<Is
 }
 
 export async function getIssue(caller: Caller, idOrIdentifier: string): Promise<IssueDetail> {
-  const readScope = await assertPermissionScope(caller, KIVOTASKS_PERMISSIONS.keys["issues.read"]);
+  const readableTeamIds = await resolveReadableIssuesFilter(caller);
 
   let lookup: IssueLookup;
   if (isUuid(idOrIdentifier)) {
@@ -155,7 +151,7 @@ export async function getIssue(caller: Caller, idOrIdentifier: string): Promise<
     lookup = { type: "identifier", key: parsedIdentifier.key, number: parsedIdentifier.number };
   }
 
-  const detail = await getIssuesStore().findIssueDetail(caller, lookup, teamFilterFromScope(readScope));
+  const detail = await getIssuesStore().findIssueDetail(caller, lookup, readableTeamIds);
   if (!detail) {
     throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono zadania");
   }
@@ -170,8 +166,7 @@ export async function updateIssue(caller: Caller, issueId: string, rawInput: unk
     throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono zadania");
   }
 
-  const canReadOrWrite = canReadTeamIssues(snapshot, existing.teamId) || canWriteTeamIssues(snapshot, existing.teamId);
-  if (!canReadOrWrite) {
+  if (!canReadTeamIssues(snapshot, existing.teamId)) {
     throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono zadania");
   }
   if (!canWriteTeamIssues(snapshot, existing.teamId)) {
@@ -193,11 +188,7 @@ export async function updateIssue(caller: Caller, issueId: string, rawInput: unk
     await assertAssigneeIsTeamMember(caller.organizationId, existing.teamId, input.assigneeAccountId);
   }
 
-  // Osoba z samym zapisem też widzi zmienione zadanie (jak przy sprawdzaniu 404 przed 403 wyżej)
-  const visibleTeams = mergeTeamFilters(
-    teamFilterFromScope(scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.read"])),
-    teamFilterFromScope(scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.write"])),
-  );
+  const visibleTeams = readableIssueTeamsFilter(snapshot);
   const updated = await store.updateIssue(
     caller,
     issueId,
@@ -229,8 +220,7 @@ export async function deleteIssue(caller: Caller, issueId: string): Promise<void
     throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono zadania");
   }
 
-  const canReadOrWrite = canReadTeamIssues(snapshot, existing.teamId) || canWriteTeamIssues(snapshot, existing.teamId);
-  if (!canReadOrWrite) {
+  if (!canReadTeamIssues(snapshot, existing.teamId)) {
     throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono zadania");
   }
   if (!canWriteTeamIssues(snapshot, existing.teamId)) {
@@ -263,10 +253,10 @@ export async function createIssueRelation(
     store.findIssueLocationById(caller, input.relatedIssueId),
   ]);
 
-  if (!source || (!canReadTeamIssues(snapshot, source.teamId) && !canWriteTeamIssues(snapshot, source.teamId))) {
+  if (!source || !canReadTeamIssues(snapshot, source.teamId)) {
     throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono zadania");
   }
-  if (!target || (!canReadTeamIssues(snapshot, target.teamId) && !canWriteTeamIssues(snapshot, target.teamId))) {
+  if (!target || !canReadTeamIssues(snapshot, target.teamId)) {
     throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono powiązanego zadania");
   }
 
@@ -289,12 +279,7 @@ export async function deleteIssueRelation(caller: Caller, issueId: string, relat
     throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono relacji");
   }
 
-  const canSeeSource =
-    canReadTeamIssues(snapshot, relation.issueTeamId) || canWriteTeamIssues(snapshot, relation.issueTeamId);
-  const canSeeTarget =
-    canReadTeamIssues(snapshot, relation.relatedIssueTeamId) ||
-    canWriteTeamIssues(snapshot, relation.relatedIssueTeamId);
-  if (!canSeeSource || !canSeeTarget) {
+  if (!canReadTeamIssues(snapshot, relation.issueTeamId) || !canReadTeamIssues(snapshot, relation.relatedIssueTeamId)) {
     throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono relacji");
   }
 
@@ -312,7 +297,7 @@ export async function deleteIssueRelation(caller: Caller, issueId: string, relat
 }
 
 export async function searchIssues(caller: Caller, searchParams: URLSearchParams): Promise<SearchIssuesResult> {
-  const readScope = await assertPermissionScope(caller, KIVOTASKS_PERMISSIONS.keys["issues.read"]);
+  const readableTeamIds = await resolveReadableIssuesFilter(caller);
   const { q } = SearchIssuesQuery.parse({ q: searchParams.get("q") ?? "" });
   if (q.length === 0) {
     return { issues: [] };
@@ -321,7 +306,7 @@ export async function searchIssues(caller: Caller, searchParams: URLSearchParams
   const identifier = parseIssueIdentifier(q);
   const tsQuery = buildPrefixTsQuery(q);
   const issues = await getIssuesStore().searchIssues(caller, {
-    readableTeamIds: teamFilterFromScope(readScope),
+    readableTeamIds,
     identifier,
     tsQuery,
     limit: SEARCH_MAX_RESULTS,

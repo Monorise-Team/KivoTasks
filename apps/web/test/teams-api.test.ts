@@ -407,6 +407,136 @@ describe("API zespołów, kandydatów i członków", () => {
     expect(branchFinanse.status).toBe(404);
   });
 
+  it("osoba z samym issues.write widzi zespół (lista, statusy, etykiety, członkowie), dostaje 403 przy ustawieniach i 404 dla Finansów", async () => {
+    await asSession(owner);
+    await call(teamsRoute.POST, "/teams", { method: "POST", body: { unitId: unitMagazynId, key: "MAG" } });
+    await call(teamsRoute.POST, "/teams", { method: "POST", body: { unitId: unitFinanseId, key: "FIN" } });
+
+    const writerRoleId = acme.addRole({
+      name: "Tylko zapis zadań",
+      product: "kivotasks",
+      permissions: [KIVOTASKS_PERMISSIONS.keys["issues.write"]],
+    }).id;
+    const piotr = acme.addEmployee({
+      firstName: "Piotr",
+      lastName: "Zapisujący",
+      products: ["kivotasks"],
+      unitIds: [unitMagazynId],
+    });
+    acme.assignRole({
+      accountId: piotr.accountId,
+      roleId: writerRoleId,
+      scope: { type: "UNIT", unitId: unitMagazynId },
+    });
+    const piotrToken = await tokenFor(piotr);
+
+    // Odczyt zespołu Magazyn, statusów, etykiet i członków -> 200
+    const teamsRes = await call(teamsRoute.GET, "/teams", { token: piotrToken });
+    expect(teamsRes.status).toBe(200);
+    expect(teamsRes.body.data.teams.map((t: { key: string }) => t.key)).toEqual(["MAG"]);
+
+    expect(
+      (await call(statesRoute.GET, `/teams/${unitMagazynId}/states`, { token: piotrToken }, { teamId: unitMagazynId }))
+        .status,
+    ).toBe(200);
+    expect(
+      (await call(labelsRoute.GET, `/teams/${unitMagazynId}/labels`, { token: piotrToken }, { teamId: unitMagazynId }))
+        .status,
+    ).toBe(200);
+    expect(
+      (
+        await call(
+          membersRoute.GET,
+          `/teams/${unitMagazynId}/members`,
+          { token: piotrToken },
+          { teamId: unitMagazynId },
+        )
+      ).status,
+    ).toBe(200);
+
+    // Zarządzanie zespołem Magazyn (widocznym, ale bez teams.manage) -> 403, nie 404
+    expect(
+      (
+        await call(
+          teamByIdRoute.PATCH,
+          `/teams/${unitMagazynId}`,
+          { method: "PATCH", body: { key: "LOG" }, token: piotrToken },
+          { teamId: unitMagazynId },
+        )
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await call(
+          statesRoute.POST,
+          `/teams/${unitMagazynId}/states`,
+          { method: "POST", body: { name: "Test", category: "STARTED", color: "blue" }, token: piotrToken },
+          { teamId: unitMagazynId },
+        )
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await call(
+          labelsRoute.POST,
+          `/teams/${unitMagazynId}/labels`,
+          { method: "POST", body: { name: "Pilne", color: "red" }, token: piotrToken },
+          { teamId: unitMagazynId },
+        )
+      ).status,
+    ).toBe(403);
+
+    // Finanse (spoza zasięgu) -> 404 na odczycie i mutacjach
+    expect(
+      (await call(statesRoute.GET, `/teams/${unitFinanseId}/states`, { token: piotrToken }, { teamId: unitFinanseId }))
+        .status,
+    ).toBe(404);
+    expect(
+      (await call(labelsRoute.GET, `/teams/${unitFinanseId}/labels`, { token: piotrToken }, { teamId: unitFinanseId }))
+        .status,
+    ).toBe(404);
+    expect(
+      (
+        await call(
+          membersRoute.GET,
+          `/teams/${unitFinanseId}/members`,
+          { token: piotrToken },
+          { teamId: unitFinanseId },
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await call(
+          teamByIdRoute.PATCH,
+          `/teams/${unitFinanseId}`,
+          { method: "PATCH", body: { key: "FNS" }, token: piotrToken },
+          { teamId: unitFinanseId },
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await call(
+          statesRoute.POST,
+          `/teams/${unitFinanseId}/states`,
+          { method: "POST", body: { name: "Test", category: "STARTED", color: "blue" }, token: piotrToken },
+          { teamId: unitFinanseId },
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await call(
+          labelsRoute.POST,
+          `/teams/${unitFinanseId}/labels`,
+          { method: "POST", body: { name: "Pilne", color: "red" }, token: piotrToken },
+          { teamId: unitFinanseId },
+        )
+      ).status,
+    ).toBe(404);
+  });
+
   it("GET /api/v1/teams/{teamId}/members zwraca wyłącznie aktywnych członków z kontem (także wielostronicowo)", async () => {
     await asSession(owner);
     await call(teamsRoute.POST, "/teams", { method: "POST", body: { unitId: unitMagazynId, key: "MAG" } });

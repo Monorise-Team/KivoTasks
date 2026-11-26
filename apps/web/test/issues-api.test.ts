@@ -426,7 +426,7 @@ describe("zadania: numeracja, statusy domyślne, znaczniki czasu, przypisanie i 
     ).toBe(403);
   });
 
-  it("osoba z samym issues.write dostaje zmienione zadanie, a nie 404", async () => {
+  it("osoba z samym issues.write widzi i czyta zadania ze swojego zespołu, a dla obcego dostaje 404", async () => {
     const writerRoleId = acme.addRole({
       name: "Tylko zapis",
       product: "kivotasks",
@@ -445,12 +445,21 @@ describe("zadania: numeracja, statusy domyślne, znaczniki czasu, przypisanie i 
     });
     const piotrToken = await acme.signUserToken(piotr.accountId, { audience: API });
 
+    const finIssue = (
+      await call(issuesRoute.POST, "/issues", {
+        method: "POST",
+        body: { teamId: unitFinanseId, title: "Poufne palety finansowe" },
+        token: ownerToken,
+      })
+    ).body.data;
+
     const created = await call(issuesRoute.POST, "/issues", {
       method: "POST",
       body: { teamId: unitMagazynId, title: "Wymiana palet" },
       token: piotrToken,
     });
     expect(created.status).toBe(201);
+    expect(created.body.data.identifier).toBe("MAG-1");
 
     const updated = await call(
       issueByIdRoute.PATCH,
@@ -460,6 +469,29 @@ describe("zadania: numeracja, statusy domyślne, znaczniki czasu, przypisanie i 
     );
     expect(updated.status).toBe(200);
     expect(updated.body.data.title).toBe("Wymiana palet w strefie B");
+
+    // GET /issues?teamId=... zwraca zadania Magazynu (200), bez Finansów
+    const listed = await call(issuesRoute.GET, `/issues?teamId=${unitMagazynId}`, { token: piotrToken });
+    expect(listed.status).toBe(200);
+    expect(listed.body.data.map((item: { id: string }) => item.id)).toEqual([created.body.data.id]);
+
+    // GET /issues/MAG-1 -> 200; GET /issues/FIN-1 -> 404
+    const fetched = await call(issueByIdRoute.GET, "/issues/MAG-1", { token: piotrToken }, { issueId: "MAG-1" });
+    expect(fetched.status).toBe(200);
+    expect(fetched.body.data.id).toBe(created.body.data.id);
+
+    expect((await call(issueByIdRoute.GET, "/issues/FIN-1", { token: piotrToken }, { issueId: "FIN-1" })).status).toBe(
+      404,
+    );
+    expect(
+      (await call(issueByIdRoute.GET, `/issues/${finIssue.id}`, { token: piotrToken }, { issueId: finIssue.id }))
+        .status,
+    ).toBe(404);
+
+    // GET /search -> 200 i zawiera tylko zadania z Magazynu
+    const searched = await call(searchRoute.GET, "/search?q=palet", { token: piotrToken });
+    expect(searched.status).toBe(200);
+    expect(searched.body.data.issues.map((item: { id: string }) => item.id)).toEqual([created.body.data.id]);
   });
 });
 

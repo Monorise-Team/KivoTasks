@@ -29,7 +29,7 @@ import {
 } from "./permissions";
 
 /**
- * Zwraca zespoły, które osoba może odczytać (`issues.read` lub `teams.manage` na zespole),
+ * Zwraca zespoły, które osoba może odczytać (`issues.read`, `issues.write` lub `teams.manage` na zespole),
  * i w jednym wywołaniu best-effort odświeża buforowane nazwy z jednostek MonoriseCore.
  */
 export async function listTeams(caller: Caller): Promise<TeamsList> {
