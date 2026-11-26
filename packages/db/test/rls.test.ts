@@ -1,12 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { createDb, uuidv7, withUser, type Actor } from "../src/index.js";
 
 // Rola aplikacji (kivo_tasks_app): RLS obowiązuje ją zawsze. Lokalnie: pnpm db:up && pnpm db:migrate.
 const url =
   process.env.KIVOTASKS_TEST_APP_DATABASE_URL ??
   "postgresql://kivo_tasks_app:kivo_tasks_app@localhost:5436/kivo_tasks_test";
-// Jedno połączenie w puli pozwala użyć tabeli tymczasowej z wymuszonym RLS do sprawdzenia funkcji pomocniczych w etapie 0.
-const db = createDb(url, { max: 1 });
+const db = createDb(url, { max: 12 });
 
 const acme = uuidv7();
 const globex = uuidv7();
@@ -14,44 +13,49 @@ const anna: Actor = { organizationId: acme, accountId: uuidv7() };
 const bartek: Actor = { organizationId: acme, accountId: uuidv7() };
 const celina: Actor = { organizationId: globex, accountId: uuidv7() };
 
-beforeAll(async () => {
-  await db.$executeRawUnsafe(`
-    CREATE TEMP TABLE rls_stage0_probe (
-      id UUID PRIMARY KEY,
-      organization_id UUID NOT NULL,
-      account_id UUID NOT NULL,
-      label TEXT NOT NULL
-    )
-  `);
-  await db.$executeRawUnsafe(`ALTER TABLE rls_stage0_probe ENABLE ROW LEVEL SECURITY`);
-  await db.$executeRawUnsafe(`ALTER TABLE rls_stage0_probe FORCE ROW LEVEL SECURITY`);
-  await db.$executeRawUnsafe(`
-    CREATE POLICY owner_isolation ON rls_stage0_probe
-      USING (
-        organization_id = "public"."current_organization_id"()
-        AND account_id = "public"."current_account_id"()
-      )
-      WITH CHECK (
-        organization_id = "public"."current_organization_id"()
-        AND account_id = "public"."current_account_id"()
-      )
-  `);
-});
+const DOMAIN_TABLES = ["teams", "workflow_states", "labels", "issues", "issue_labels", "issue_relations"] as const;
 
 afterAll(async () => {
-  await db.$executeRawUnsafe(`DROP TABLE IF EXISTS rls_stage0_probe`);
+  for (const actor of [anna, celina]) {
+    await withUser(db, actor, async (tx) => {
+      await tx.issueRelation.deleteMany({});
+      await tx.issueLabel.deleteMany({});
+      await tx.issue.deleteMany({});
+      await tx.label.deleteMany({});
+      await tx.workflowState.deleteMany({});
+      await tx.team.deleteMany({});
+    });
+  }
   await db.session.deleteMany({ where: { organizationId: { in: [acme, globex] } } });
   await db.processedEvent.deleteMany({ where: { consumer: "kivotasks-rls-test" } });
   await db.eventFeedCursor.deleteMany({ where: { id: "core-rls-test" } });
   await db.$disconnect();
 });
 
-describe("RLS i uprawnienia roli aplikacji kivo_tasks_app (etap 0)", () => {
+describe("RLS i uprawnienia roli aplikacji kivo_tasks_app", () => {
   it("rola kivo_tasks_app nie jest superużytkownikiem i nie ma BYPASSRLS", async () => {
     const rows = await db.$queryRaw<{ rolsuper: boolean; rolbypassrls: boolean }[]>`
       SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user
     `;
     expect(rows).toEqual([{ rolsuper: false, rolbypassrls: false }]);
+  });
+
+  it("każda tabela domenowa ma włączone i wymuszone RLS (ENABLE + FORCE ROW LEVEL SECURITY)", async () => {
+    const rows = await db.$queryRaw<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }[]>`
+      SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relname = ANY(${[...DOMAIN_TABLES]}::text[])
+      ORDER BY c.relname
+    `;
+    expect(rows).toEqual(
+      [...DOMAIN_TABLES].sort().map((relname) => ({
+        relname,
+        relrowsecurity: true,
+        relforcerowsecurity: true,
+      })),
+    );
   });
 
   it("withUser ustawia current_organization_id() i current_account_id() wyłącznie na czas transakcji", async () => {
@@ -66,7 +70,6 @@ describe("RLS i uprawnienia roli aplikacji kivo_tasks_app (etap 0)", () => {
     );
     expect(inside).toEqual([{ organizationId: anna.organizationId, accountId: anna.accountId }]);
 
-    // Po zakończeniu transakcji zmienne znikają i nie przeciekają na kolejne zapytania z puli
     const outside = await db.$queryRaw<{ organizationId: string | null; accountId: string | null }[]>`
       SELECT "public"."current_organization_id"()::text AS "organizationId",
              "public"."current_account_id"()::text AS "accountId"
@@ -83,48 +86,252 @@ describe("RLS i uprawnienia roli aplikacji kivo_tasks_app (etap 0)", () => {
     ).rejects.toThrow(/UUID/);
   });
 
-  it("polityka RLS oparta na funkcjach pomocniczych izoluje odczyt i zapis między firmami i kontami", async () => {
-    const annaRowId = uuidv7();
-    await withUser(
-      db,
-      anna,
-      (tx) =>
-        tx.$executeRaw`
-        INSERT INTO rls_stage0_probe (id, organization_id, account_id, label)
-        VALUES (${annaRowId}::uuid, ${anna.organizationId}::uuid, ${anna.accountId}::uuid, 'wpis-anny')
-      `,
-    );
+  it("izoluje odczyt i zapis między firmami we wszystkich tabelach domenowych etapu 1a", async () => {
+    const teamId = uuidv7();
+    const stateId = uuidv7();
+    const labelId = uuidv7();
+    const issue1Id = uuidv7();
+    const issue2Id = uuidv7();
+    const relationId = uuidv7();
 
-    const annaVisible = await withUser(
-      db,
-      anna,
-      (tx) => tx.$queryRaw<{ id: string }[]>`SELECT id::text AS id FROM rls_stage0_probe`,
-    );
-    expect(annaVisible).toEqual([{ id: annaRowId }]);
+    await withUser(db, anna, async (tx) => {
+      await tx.team.create({
+        data: { id: teamId, organizationId: acme, key: "MAG", name: "Magazyn", nextIssueNumber: 3 },
+      });
+      await tx.workflowState.create({
+        data: {
+          id: stateId,
+          organizationId: acme,
+          teamId,
+          name: "Backlog",
+          category: "BACKLOG",
+          color: "gray",
+          position: 0,
+        },
+      });
+      await tx.label.create({
+        data: { id: labelId, organizationId: acme, teamId, name: "Pilne", color: "red" },
+      });
+      await tx.issue.create({
+        data: {
+          id: issue1Id,
+          organizationId: acme,
+          teamId,
+          number: 1,
+          title: "Przegląd strefy przyjęć",
+          description: "Sprawdzić bramę numer 2",
+          stateId,
+          priority: 2,
+          creatorAccountId: anna.accountId,
+          sortOrder: 1000,
+        },
+      });
+      await tx.issue.create({
+        data: {
+          id: issue2Id,
+          organizationId: acme,
+          teamId,
+          number: 2,
+          title: "Zamówienie etykiet",
+          stateId,
+          priority: 3,
+          creatorAccountId: anna.accountId,
+          sortOrder: 2000,
+        },
+      });
+      await tx.issueLabel.create({
+        data: { issueId: issue1Id, labelId, organizationId: acme },
+      });
+      await tx.issueRelation.create({
+        data: {
+          id: relationId,
+          organizationId: acme,
+          issueId: issue1Id,
+          relatedIssueId: issue2Id,
+          type: "BLOCKS",
+        },
+      });
+    });
 
-    // Inna osoba z tej samej firmy, osoba z innej firmy i zapytanie bez withUser nie widzą wiersza
-    expect(
-      await withUser(db, bartek, (tx) => tx.$queryRaw<{ id: string }[]>`SELECT id::text AS id FROM rls_stage0_probe`),
-    ).toEqual([]);
-    expect(
-      await withUser(db, celina, (tx) => tx.$queryRaw<{ id: string }[]>`SELECT id::text AS id FROM rls_stage0_probe`),
-    ).toEqual([]);
-    expect(await db.$queryRaw<{ id: string }[]>`SELECT id::text AS id FROM rls_stage0_probe`).toEqual([]);
+    // Inna osoba z tej samej firmy (Bartek z Acme) widzi dane firmy Acme
+    const bartekCounts = await withUser(db, bartek, async (tx) => ({
+      teams: await tx.team.count(),
+      states: await tx.workflowState.count(),
+      labels: await tx.label.count(),
+      issues: await tx.issue.count(),
+      issueLabels: await tx.issueLabel.count(),
+      issueRelations: await tx.issueRelation.count(),
+    }));
+    expect(bartekCounts).toEqual({
+      teams: 1,
+      states: 1,
+      labels: 1,
+      issues: 2,
+      issueLabels: 1,
+      issueRelations: 1,
+    });
 
-    // Nie da się zapisać wiersza z cudzym organization_id albo account_id
+    // Osoba z innej firmy (Celina z Globex) nie widzi ani jednego wiersza w żadnej tabeli
+    const celinaCounts = await withUser(db, celina, async (tx) => ({
+      teams: await tx.team.count(),
+      states: await tx.workflowState.count(),
+      labels: await tx.label.count(),
+      issues: await tx.issue.count(),
+      issueLabels: await tx.issueLabel.count(),
+      issueRelations: await tx.issueRelation.count(),
+    }));
+    expect(celinaCounts).toEqual({
+      teams: 0,
+      states: 0,
+      labels: 0,
+      issues: 0,
+      issueLabels: 0,
+      issueRelations: 0,
+    });
+
+    // Zapytania bez withUser również nic nie widzą
+    expect(await db.team.count()).toBe(0);
+    expect(await db.workflowState.count()).toBe(0);
+    expect(await db.label.count()).toBe(0);
+    expect(await db.issue.count()).toBe(0);
+    expect(await db.issueLabel.count()).toBe(0);
+    expect(await db.issueRelation.count()).toBe(0);
+
+    // Zapis wiersza z cudzym organization_id zostaje odrzucony przez WITH CHECK na każdej z 6 tabel
     await expect(
-      withUser(
-        db,
-        anna,
-        (tx) =>
-          tx.$executeRaw`
-          INSERT INTO rls_stage0_probe (id, organization_id, account_id, label)
-          VALUES (${uuidv7()}::uuid, ${celina.organizationId}::uuid, ${celina.accountId}::uuid, 'obcy')
-        `,
+      withUser(db, celina, (tx) =>
+        tx.team.create({ data: { id: uuidv7(), organizationId: acme, key: "OBC", name: "Obcy" } }),
       ),
     ).rejects.toThrow();
 
-    await withUser(db, anna, (tx) => tx.$executeRaw`DELETE FROM rls_stage0_probe WHERE id = ${annaRowId}::uuid`);
+    await expect(
+      withUser(db, celina, (tx) =>
+        tx.workflowState.create({
+          data: {
+            id: uuidv7(),
+            organizationId: acme,
+            teamId,
+            name: "Obcy",
+            category: "BACKLOG",
+            color: "gray",
+            position: 9,
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      withUser(db, celina, (tx) =>
+        tx.label.create({ data: { id: uuidv7(), organizationId: acme, teamId, name: "Obca", color: "blue" } }),
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      withUser(db, celina, (tx) =>
+        tx.issue.create({
+          data: {
+            id: uuidv7(),
+            organizationId: acme,
+            teamId,
+            number: 99,
+            title: "Obce zadanie",
+            stateId,
+            creatorAccountId: celina.accountId,
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      withUser(db, celina, (tx) =>
+        tx.issueLabel.create({ data: { issueId: issue2Id, labelId, organizationId: acme } }),
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      withUser(db, celina, (tx) =>
+        tx.issueRelation.create({
+          data: {
+            id: uuidv7(),
+            organizationId: acme,
+            issueId: issue2Id,
+            relatedIssueId: issue1Id,
+            type: "RELATED",
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("atomowo przydziela kolejne numery zadań przy równoległym tworzeniu bez kolizji i luk", async () => {
+    const parallelTeamId = uuidv7();
+    const parallelStateId = uuidv7();
+
+    await withUser(db, anna, async (tx) => {
+      await tx.team.create({
+        data: { id: parallelTeamId, organizationId: acme, key: "PAR", name: "Równoległy", nextIssueNumber: 1 },
+      });
+      await tx.workflowState.create({
+        data: {
+          id: parallelStateId,
+          organizationId: acme,
+          teamId: parallelTeamId,
+          name: "Backlog",
+          category: "BACKLOG",
+          color: "gray",
+          position: 0,
+        },
+      });
+    });
+
+    const createOne = (index: number) =>
+      withUser(db, anna, async (tx) => {
+        const rows = await tx.$queryRaw<{ number: number }[]>`
+          UPDATE "public"."teams"
+          SET "next_issue_number" = "next_issue_number" + 1,
+              "updated_at" = CURRENT_TIMESTAMP
+          WHERE "id" = ${parallelTeamId}::uuid
+            AND "archived_at" IS NULL
+          RETURNING ("next_issue_number" - 1) AS "number"
+        `;
+        const number = rows[0]!.number;
+        await tx.issue.create({
+          data: {
+            id: uuidv7(),
+            organizationId: acme,
+            teamId: parallelTeamId,
+            number,
+            title: `Zadanie równoległe ${index}`,
+            stateId: parallelStateId,
+            creatorAccountId: anna.accountId,
+            sortOrder: number * 1000,
+          },
+        });
+        return number;
+      });
+
+    const numbers = await Promise.all(Array.from({ length: 12 }, (_, i) => createOne(i)));
+    expect([...numbers].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+
+    // Wycofana transakcja nie zostawia luki w numeracji
+    await expect(
+      withUser(db, anna, async (tx) => {
+        await tx.$queryRaw`
+          UPDATE "public"."teams"
+          SET "next_issue_number" = "next_issue_number" + 1,
+              "updated_at" = CURRENT_TIMESTAMP
+          WHERE "id" = ${parallelTeamId}::uuid
+          RETURNING ("next_issue_number" - 1) AS "number"
+        `;
+        throw new Error("celowe wycofanie transakcji");
+      }),
+    ).rejects.toThrow(/celowe wycofanie/);
+
+    const nextNumber = await createOne(13);
+    expect(nextNumber).toBe(13);
+
+    const team = await withUser(db, anna, (tx) => tx.team.findUnique({ where: { id: parallelTeamId } }));
+    expect(team?.nextIssueNumber).toBe(14);
   });
 
   it("sesje przeglądarki i tabele kanału zdarzeń są dostępne dla kivo_tasks_app bez ustawionej firmy", async () => {

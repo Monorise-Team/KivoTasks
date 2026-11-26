@@ -32,3 +32,33 @@ export type EventFeedCursor = Prisma.EventFeedCursorModel
  * Zapis przetworzonych zdarzeń do deduplikacji po stronie odbiorcy (bez danych firmowych, bez RLS).
  */
 export type ProcessedEvent = Prisma.ProcessedEventModel
+/**
+ * Model Team
+ * Zespół KivoTasks oparty na jednostce organizacyjnej MonoriseCore (id = unitId w Core).
+ */
+export type Team = Prisma.TeamModel
+/**
+ * Model WorkflowState
+ * Status obiegu zadań należący do zespołu.
+ */
+export type WorkflowState = Prisma.WorkflowStateModel
+/**
+ * Model Label
+ * Etykieta zespołu (unikalna w zespole bez rozróżniania wielkości liter dla aktywnych rekordów).
+ */
+export type Label = Prisma.LabelModel
+/**
+ * Model Issue
+ * Zadanie zespołu KivoTasks (identyfikator KEY-number, miękkie usuwanie przez deleted_at).
+ */
+export type Issue = Prisma.IssueModel
+/**
+ * Model IssueLabel
+ * Powiązanie zadania z etykietą tego samego zespołu.
+ */
+export type IssueLabel = Prisma.IssueLabelModel
+/**
+ * Model IssueRelation
+ * Relacja między dwoma zadaniami w obrębie firmy (dozwolone relacje między zespołami).
+ */
+export type IssueRelation = Prisma.IssueRelationModel

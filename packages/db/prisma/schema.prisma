@@ -1,10 +1,10 @@
-// Baza kivo_tasks (ADR-0096, ADR-0103): sesje przeglądarki i kanał zdarzeń Core (etap 0).
+// Baza kivo_tasks (ADR-0096, ADR-0103): sesje przeglądarki, kanał zdarzeń Core oraz domena zadań (etap 1a).
 // Osoba, pracownik i firma pochodzą z MonoriseCore (sub, employee_id i org_id z tokenu), więc KivoTasks nie ma własnych kont.
 // Schemat "auth": sesje przeglądarki (BFF, @monorise-team/auth). Szukamy ich po skrócie identyfikatora z ciasteczka,
 // zanim wiadomo, czyja to sesja, więc są bez RLS; tokeny w środku są zaszyfrowane.
-// Schemat "public": funkcje pomocnicze RLS (migracje) oraz tabele techniczne kanału zdarzeń Core bez danych firmowych.
-// Aplikacja łączy się rolą kivo_tasks_app bez uprawnień właściciela tabel (ADR-0037); każda tabela domenowa
-// z danymi osób albo firm od etapu 1 dostaje RLS (ENABLE + FORCE) z użyciem funkcji pomocniczych.
+// Schemat "public": funkcje pomocnicze RLS (migracje), tabele techniczne kanału zdarzeń Core bez danych firmowych
+// oraz tabele domenowe z wymuszonym RLS (ENABLE + FORCE ROW LEVEL SECURITY) na public.current_organization_id().
+// Aplikacja łączy się rolą kivo_tasks_app bez uprawnień właściciela tabel (ADR-0037).
 
 generator client {
   provider            = "prisma-client"
@@ -16,6 +16,24 @@ generator client {
 datasource db {
   provider = "postgresql"
   schemas  = ["public", "auth"]
+}
+
+enum WorkflowStateCategory {
+  BACKLOG
+  UNSTARTED
+  STARTED
+  COMPLETED
+  CANCELED
+
+  @@schema("public")
+}
+
+enum IssueRelationType {
+  BLOCKS
+  RELATED
+  DUPLICATE
+
+  @@schema("public")
 }
 
 /// Sesja przeglądarki: tokeny z Core zaszyfrowane po stronie serwera (ADR-0050).
@@ -58,5 +76,148 @@ model ProcessedEvent {
   @@id([consumer, eventId])
   @@index([processedAt])
   @@map("processed_events")
+  @@schema("public")
+}
+
+/// Zespół KivoTasks oparty na jednostce organizacyjnej MonoriseCore (id = unitId w Core).
+model Team {
+  /// Identyfikator jednostki organizacyjnej w MonoriseCore.
+  id              String          @id @db.Uuid
+  organizationId  String          @map("organization_id") @db.Uuid
+  /// Krótki klucz zespołu do numeracji zadań (2-5 wielkich liter A-Z, np. MAG).
+  key             String
+  /// Nazwa skopiowana z jednostki Core i odświeżana best-effort.
+  name            String
+  /// Kolejny numer zadania do przydzielenia atomowo w transakcji tworzenia zadania.
+  nextIssueNumber Int             @default(1) @map("next_issue_number")
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  archivedAt      DateTime?       @map("archived_at") @db.Timestamptz(3)
+  workflowStates  WorkflowState[]
+  labels          Label[]
+  issues          Issue[]
+
+  @@unique([organizationId, key])
+  @@index([organizationId, archivedAt])
+  @@map("teams")
+  @@schema("public")
+}
+
+/// Status obiegu zadań należący do zespołu.
+model WorkflowState {
+  id             String                @id @db.Uuid
+  organizationId String                @map("organization_id") @db.Uuid
+  teamId         String                @map("team_id") @db.Uuid
+  name           String
+  category       WorkflowStateCategory
+  color          String
+  position       Int
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  archivedAt     DateTime?             @map("archived_at") @db.Timestamptz(3)
+  team           Team                  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  issues         Issue[]
+
+  @@index([organizationId, teamId, position])
+  @@index([teamId, archivedAt])
+  @@map("workflow_states")
+  @@schema("public")
+}
+
+/// Etykieta zespołu (unikalna w zespole bez rozróżniania wielkości liter dla aktywnych rekordów).
+model Label {
+  id             String       @id @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  teamId         String       @map("team_id") @db.Uuid
+  name           String
+  color          String
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  archivedAt     DateTime?    @map("archived_at") @db.Timestamptz(3)
+  team           Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  issueLabels    IssueLabel[]
+
+  @@index([organizationId, teamId])
+  @@map("labels")
+  @@schema("public")
+}
+
+/// Zadanie zespołu KivoTasks (identyfikator KEY-number, miękkie usuwanie przez deleted_at).
+model Issue {
+  id                String                    @id @db.Uuid
+  organizationId    String                    @map("organization_id") @db.Uuid
+  teamId            String                    @map("team_id") @db.Uuid
+  number            Int
+  title             String
+  description       String?
+  stateId           String                    @map("state_id") @db.Uuid
+  /// Priorytet jak w Linear: 0 brak, 1 pilny, 2 wysoki, 3 średni, 4 niski.
+  priority          Int                       @default(0) @db.SmallInt
+  assigneeAccountId String?                   @map("assignee_account_id") @db.Uuid
+  creatorAccountId  String                    @map("creator_account_id") @db.Uuid
+  dueDate           DateTime?                 @map("due_date") @db.Date
+  estimate          Int?                      @db.SmallInt
+  parentId          String?                   @map("parent_id") @db.Uuid
+  sortOrder         Float                     @default(0) @map("sort_order")
+  startedAt         DateTime?                 @map("started_at") @db.Timestamptz(3)
+  completedAt       DateTime?                 @map("completed_at") @db.Timestamptz(3)
+  canceledAt        DateTime?                 @map("canceled_at") @db.Timestamptz(3)
+  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt         DateTime?                 @map("deleted_at") @db.Timestamptz(3)
+  /// Kolumna generowana PostgreSQL (konfiguracja 'simple', tytuł waga A, opis waga B) z indeksem GIN.
+  searchVector      Unsupported("tsvector")?  @map("search_vector")
+  team              Team                      @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  state             WorkflowState             @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  parent            Issue?                    @relation("IssueHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children          Issue[]                   @relation("IssueHierarchy")
+  issueLabels       IssueLabel[]
+  outgoingRelations IssueRelation[]           @relation("IssueOutgoingRelations")
+  incomingRelations IssueRelation[]           @relation("IssueIncomingRelations")
+
+  @@unique([teamId, number])
+  @@index([organizationId, teamId, deletedAt])
+  @@index([organizationId, stateId, deletedAt])
+  @@index([organizationId, assigneeAccountId, deletedAt])
+  @@index([organizationId, parentId, deletedAt])
+  @@index([organizationId, priority, updatedAt])
+  @@index([organizationId, dueDate])
+  @@index([organizationId, updatedAt])
+  @@index([organizationId, createdAt])
+  @@index([teamId, sortOrder])
+  @@index([searchVector], type: Gin)
+  @@map("issues")
+  @@schema("public")
+}
+
+/// Powiązanie zadania z etykietą tego samego zespołu.
+model IssueLabel {
+  issueId        String @map("issue_id") @db.Uuid
+  labelId        String @map("label_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  issue          Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  label          Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([issueId, labelId])
+  @@index([organizationId, labelId])
+  @@index([labelId])
+  @@map("issue_labels")
+  @@schema("public")
+}
+
+/// Relacja między dwoma zadaniami w obrębie firmy (dozwolone relacje między zespołami).
+model IssueRelation {
+  id             String            @id @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  issueId        String            @map("issue_id") @db.Uuid
+  relatedIssueId String            @map("related_issue_id") @db.Uuid
+  type           IssueRelationType
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  issue          Issue             @relation("IssueOutgoingRelations", fields: [issueId], references: [id], onDelete: Cascade)
+  relatedIssue   Issue             @relation("IssueIncomingRelations", fields: [relatedIssueId], references: [id], onDelete: Cascade)
+
+  @@unique([issueId, relatedIssueId, type])
+  @@index([organizationId, issueId])
+  @@index([organizationId, relatedIssueId])
+  @@map("issue_relations")
   @@schema("public")
 }

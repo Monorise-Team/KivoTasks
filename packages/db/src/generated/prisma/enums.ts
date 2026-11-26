@@ -9,7 +9,21 @@
 * 🟢 You can import this file directly.
 */
 
+export const WorkflowStateCategory = {
+  BACKLOG: 'BACKLOG',
+  UNSTARTED: 'UNSTARTED',
+  STARTED: 'STARTED',
+  COMPLETED: 'COMPLETED',
+  CANCELED: 'CANCELED'
+} as const
+
+export type WorkflowStateCategory = (typeof WorkflowStateCategory)[keyof typeof WorkflowStateCategory]
 
 
-// This file is empty because there are no enums in the schema.
-export {}
+export const IssueRelationType = {
+  BLOCKS: 'BLOCKS',
+  RELATED: 'RELATED',
+  DUPLICATE: 'DUPLICATE'
+} as const
+
+export type IssueRelationType = (typeof IssueRelationType)[keyof typeof IssueRelationType]

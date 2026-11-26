@@ -53,7 +53,13 @@ export const AnyNull = runtime.AnyNull
 export const ModelName = {
   Session: 'Session',
   EventFeedCursor: 'EventFeedCursor',
-  ProcessedEvent: 'ProcessedEvent'
+  ProcessedEvent: 'ProcessedEvent',
+  Team: 'Team',
+  WorkflowState: 'WorkflowState',
+  Label: 'Label',
+  Issue: 'Issue',
+  IssueLabel: 'IssueLabel',
+  IssueRelation: 'IssueRelation'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -103,6 +109,96 @@ export const ProcessedEventScalarFieldEnum = {
 export type ProcessedEventScalarFieldEnum = (typeof ProcessedEventScalarFieldEnum)[keyof typeof ProcessedEventScalarFieldEnum]
 
 
+export const TeamScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  key: 'key',
+  name: 'name',
+  nextIssueNumber: 'nextIssueNumber',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+  archivedAt: 'archivedAt'
+} as const
+
+export type TeamScalarFieldEnum = (typeof TeamScalarFieldEnum)[keyof typeof TeamScalarFieldEnum]
+
+
+export const WorkflowStateScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  teamId: 'teamId',
+  name: 'name',
+  category: 'category',
+  color: 'color',
+  position: 'position',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+  archivedAt: 'archivedAt'
+} as const
+
+export type WorkflowStateScalarFieldEnum = (typeof WorkflowStateScalarFieldEnum)[keyof typeof WorkflowStateScalarFieldEnum]
+
+
+export const LabelScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  teamId: 'teamId',
+  name: 'name',
+  color: 'color',
+  createdAt: 'createdAt',
+  archivedAt: 'archivedAt'
+} as const
+
+export type LabelScalarFieldEnum = (typeof LabelScalarFieldEnum)[keyof typeof LabelScalarFieldEnum]
+
+
+export const IssueScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  teamId: 'teamId',
+  number: 'number',
+  title: 'title',
+  description: 'description',
+  stateId: 'stateId',
+  priority: 'priority',
+  assigneeAccountId: 'assigneeAccountId',
+  creatorAccountId: 'creatorAccountId',
+  dueDate: 'dueDate',
+  estimate: 'estimate',
+  parentId: 'parentId',
+  sortOrder: 'sortOrder',
+  startedAt: 'startedAt',
+  completedAt: 'completedAt',
+  canceledAt: 'canceledAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+  deletedAt: 'deletedAt'
+} as const
+
+export type IssueScalarFieldEnum = (typeof IssueScalarFieldEnum)[keyof typeof IssueScalarFieldEnum]
+
+
+export const IssueLabelScalarFieldEnum = {
+  issueId: 'issueId',
+  labelId: 'labelId',
+  organizationId: 'organizationId'
+} as const
+
+export type IssueLabelScalarFieldEnum = (typeof IssueLabelScalarFieldEnum)[keyof typeof IssueLabelScalarFieldEnum]
+
+
+export const IssueRelationScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  issueId: 'issueId',
+  relatedIssueId: 'relatedIssueId',
+  type: 'type',
+  createdAt: 'createdAt'
+} as const
+
+export type IssueRelationScalarFieldEnum = (typeof IssueRelationScalarFieldEnum)[keyof typeof IssueRelationScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -117,4 +213,12 @@ export const QueryMode = {
 } as const
 
 export type QueryMode = (typeof QueryMode)[keyof typeof QueryMode]
+
+
+export const NullsOrder = {
+  first: 'first',
+  last: 'last'
+} as const
+
+export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
 
