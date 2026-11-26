@@ -3,13 +3,24 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   ApiErrorResponse,
+  ApiListMeta,
+  apiListSuccessSchema,
   apiSuccessSchema,
+  CreateIssueInput,
+  CreateIssueRelationInput,
+  CreateLabelInput,
+  CreateTeamInput,
+  CreateWorkflowStateInput,
+  DEFAULT_WORKFLOW_STATES,
   ERROR_CODES,
   Health,
+  IssueList,
+  IssueListQuery,
   KIVOTASKS_PERMISSION_MANIFEST,
   KIVOTASKS_PERMISSIONS,
   KIVOTASKS_ROLE_TEMPLATES,
   Me,
+  TeamKey,
 } from "../src/index.js";
 
 /** Minimalny schemat żądania `PUT /core/v1/products/{productKey}/role-templates` zgodny z MonoriseCore. */
@@ -28,6 +39,8 @@ const CoreRegisterRoleTemplatesRequest = z
   .array(CoreRoleTemplateEntry)
   .max(100)
   .refine((entries) => new Set(entries.map((entry) => entry.key)).size === entries.length, "Zduplikowane klucze ról");
+
+const SAMPLE_UUID = "019a0000-0000-7000-8000-000000000001";
 
 describe("manifest uprawnień KivoTasks", () => {
   it("spełnia schemat manifestu z @monorise-team/permissions", () => {
@@ -102,7 +115,7 @@ describe("gotowe role (szablony) KivoTasks", () => {
 });
 
 describe("schematy kopert API i profilu Me", () => {
-  it("waliduje capabilities w Me", () => {
+  it("waliduje capabilities w Me wraz z createTeams", () => {
     const meParsed = Me.parse({
       account: { id: "acc-1", email: "anna@acme.test" },
       employee: { id: "emp-1", firstName: "Anna", lastName: "Nowak", fullName: "Anna Nowak", jobTitle: null },
@@ -112,6 +125,7 @@ describe("schematy kopert API i profilu Me", () => {
         readIssues: true,
         writeIssues: true,
         manageTeams: false,
+        createTeams: false,
         manageProjects: false,
       },
     });
@@ -120,11 +134,12 @@ describe("schematy kopert API i profilu Me", () => {
       readIssues: true,
       writeIssues: true,
       manageTeams: false,
+      createTeams: false,
       manageProjects: false,
     });
   });
 
-  it("zawiera PRODUCT_ACCESS_REQUIRED oraz waliduje koperty sukcesu i błędu", () => {
+  it("zawiera PRODUCT_ACCESS_REQUIRED oraz waliduje koperty sukcesu, listy i błędu", () => {
     expect(ERROR_CODES).toContain("PRODUCT_ACCESS_REQUIRED");
     expect(
       ApiErrorResponse.parse({
@@ -140,5 +155,100 @@ describe("schematy kopert API i profilu Me", () => {
       error: null,
     });
     expect(healthEnvelope.data.status).toBe("ok");
+
+    const listEnvelope = apiListSuccessSchema(IssueList).parse({
+      data: [],
+      meta: ApiListMeta.parse({ requestId: "req_456", nextCursor: null }),
+      error: null,
+    });
+    expect(listEnvelope.meta.nextCursor).toBeNull();
+  });
+});
+
+describe("schematy etapu 1a: zespoły, statusy, etykiety i zadania", () => {
+  it("waliduje klucz zespołu (2-5 wielkich liter A-Z)", () => {
+    expect(TeamKey.parse("MAG")).toBe("MAG");
+    expect(TeamKey.parse("AB")).toBe("AB");
+    expect(TeamKey.parse("ABCDE")).toBe("ABCDE");
+    expect(() => TeamKey.parse("A")).toThrow();
+    expect(() => TeamKey.parse("ABCDEF")).toThrow();
+    expect(() => TeamKey.parse("mag")).toThrow();
+    expect(() => TeamKey.parse("MA1")).toThrow();
+  });
+
+  it("definiuje 6 domyślnych statusów obiegu w oczekiwanej kolejności", () => {
+    expect(DEFAULT_WORKFLOW_STATES.map((s) => [s.name, s.category, s.color])).toEqual([
+      ["Backlog", "BACKLOG", "gray"],
+      ["Do zrobienia", "UNSTARTED", "blue"],
+      ["W toku", "STARTED", "yellow"],
+      ["Do przeglądu", "STARTED", "purple"],
+      ["Zrobione", "COMPLETED", "green"],
+      ["Anulowane", "CANCELED", "red"],
+    ]);
+  });
+
+  it("waliduje dane wejściowe tworzenia zespołu, statusu, etykiety, zadania i relacji", () => {
+    expect(CreateTeamInput.parse({ unitId: SAMPLE_UUID, key: "MAG" })).toEqual({
+      unitId: SAMPLE_UUID,
+      key: "MAG",
+    });
+    expect(CreateWorkflowStateInput.parse({ name: "Testy", category: "STARTED", color: "cyan" })).toMatchObject({
+      name: "Testy",
+      category: "STARTED",
+      color: "cyan",
+    });
+    expect(CreateLabelInput.parse({ name: "Błąd", color: "red" })).toEqual({ name: "Błąd", color: "red" });
+
+    expect(
+      CreateIssueInput.parse({
+        teamId: SAMPLE_UUID,
+        title: "Przegląd strefy przyjęć",
+        priority: 1,
+        dueDate: "2026-12-04",
+        estimate: 5,
+      }),
+    ).toMatchObject({
+      teamId: SAMPLE_UUID,
+      title: "Przegląd strefy przyjęć",
+      priority: 1,
+      dueDate: "2026-12-04",
+      estimate: 5,
+    });
+
+    // Odrzuca nieistniejącą datę kalendarzową i błędne zakresy priorytetu/szacunku
+    expect(() => CreateIssueInput.parse({ teamId: SAMPLE_UUID, title: "X", dueDate: "2026-02-31" })).toThrow();
+    expect(() => CreateIssueInput.parse({ teamId: SAMPLE_UUID, title: "X", priority: 5 })).toThrow();
+    expect(() => CreateIssueInput.parse({ teamId: SAMPLE_UUID, title: "X", estimate: 101 })).toThrow();
+
+    expect(CreateIssueRelationInput.parse({ relatedIssueId: SAMPLE_UUID, type: "BLOCKED_BY" })).toEqual({
+      relatedIssueId: SAMPLE_UUID,
+      type: "BLOCKED_BY",
+    });
+  });
+
+  it("waliduje parametry filtrowania, sortowania i stronicowania listy zadań", () => {
+    const defaults = IssueListQuery.parse({});
+    expect(defaults.sort).toBe("updated");
+    expect(defaults.limit).toBe(50);
+
+    const parsed = IssueListQuery.parse({
+      teamId: SAMPLE_UUID,
+      assignee: "me",
+      priority: "1",
+      includeCompleted: "true",
+      sort: "priority",
+      limit: "25",
+    });
+    expect(parsed).toMatchObject({
+      teamId: SAMPLE_UUID,
+      assignee: "me",
+      priority: 1,
+      includeCompleted: true,
+      sort: "priority",
+      limit: 25,
+    });
+
+    expect(() => IssueListQuery.parse({ assignee: "invalid-assignee" })).toThrow();
+    expect(() => IssueListQuery.parse({ limit: 101 })).toThrow();
   });
 });
