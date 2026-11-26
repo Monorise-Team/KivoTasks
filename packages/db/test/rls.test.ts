@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { createDb, uuidv7, withUser, type Actor } from "../src/index.js";
+import { createDb, Prisma, uuidv7, withUser, type Actor } from "../src/index.js";
 
 // Rola aplikacji (kivo_tasks_app): RLS obowiązuje ją zawsze. Lokalnie: pnpm db:up && pnpm db:migrate.
 const url =
@@ -15,11 +15,17 @@ const celina: Actor = { organizationId: globex, accountId: uuidv7() };
 
 const DOMAIN_TABLES = ["teams", "workflow_states", "labels", "issues", "issue_labels", "issue_relations"] as const;
 
+function expectForeignKeyError(error: unknown): void {
+  expect(error).toBeInstanceOf(Prisma.PrismaClientKnownRequestError);
+  expect((error as Prisma.PrismaClientKnownRequestError).code).toBe("P2003");
+}
+
 afterAll(async () => {
   for (const actor of [anna, celina]) {
     await withUser(db, actor, async (tx) => {
       await tx.issueRelation.deleteMany({});
       await tx.issueLabel.deleteMany({});
+      await tx.issue.updateMany({ where: { parentId: { not: null } }, data: { parentId: null } });
       await tx.issue.deleteMany({});
       await tx.label.deleteMany({});
       await tx.workflowState.deleteMany({});
@@ -140,7 +146,7 @@ describe("RLS i uprawnienia roli aplikacji kivo_tasks_app", () => {
         },
       });
       await tx.issueLabel.create({
-        data: { issueId: issue1Id, labelId, organizationId: acme },
+        data: { issueId: issue1Id, labelId, organizationId: acme, teamId },
       });
       await tx.issueRelation.create({
         data: {
@@ -244,7 +250,7 @@ describe("RLS i uprawnienia roli aplikacji kivo_tasks_app", () => {
 
     await expect(
       withUser(db, celina, (tx) =>
-        tx.issueLabel.create({ data: { issueId: issue2Id, labelId, organizationId: acme } }),
+        tx.issueLabel.create({ data: { issueId: issue2Id, labelId, organizationId: acme, teamId } }),
       ),
     ).rejects.toThrow();
 
@@ -261,6 +267,292 @@ describe("RLS i uprawnienia roli aplikacji kivo_tasks_app", () => {
         }),
       ),
     ).rejects.toThrow();
+  });
+
+  it("złożone klucze obce blokują odwołania między firmami oraz między zespołami w ramach jednej firmy", async () => {
+    const acmeTeamAId = uuidv7();
+    const acmeTeamBId = uuidv7();
+    const acmeStateAId = uuidv7();
+    const acmeStateBId = uuidv7();
+    const acmeLabelAId = uuidv7();
+    const acmeLabelBId = uuidv7();
+    const acmeIssueAId = uuidv7();
+    const acmeIssueBId = uuidv7();
+
+    const globexTeamId = uuidv7();
+    const globexStateId = uuidv7();
+    const globexLabelId = uuidv7();
+    const globexIssueId = uuidv7();
+
+    await withUser(db, anna, async (tx) => {
+      await tx.team.create({ data: { id: acmeTeamAId, organizationId: acme, key: "FKA", name: "FK Zespół A" } });
+      await tx.team.create({ data: { id: acmeTeamBId, organizationId: acme, key: "FKB", name: "FK Zespół B" } });
+      await tx.workflowState.create({
+        data: {
+          id: acmeStateAId,
+          organizationId: acme,
+          teamId: acmeTeamAId,
+          name: "Backlog",
+          category: "BACKLOG",
+          color: "gray",
+          position: 0,
+        },
+      });
+      await tx.workflowState.create({
+        data: {
+          id: acmeStateBId,
+          organizationId: acme,
+          teamId: acmeTeamBId,
+          name: "Backlog",
+          category: "BACKLOG",
+          color: "gray",
+          position: 0,
+        },
+      });
+      await tx.label.create({
+        data: { id: acmeLabelAId, organizationId: acme, teamId: acmeTeamAId, name: "A", color: "blue" },
+      });
+      await tx.label.create({
+        data: { id: acmeLabelBId, organizationId: acme, teamId: acmeTeamBId, name: "B", color: "green" },
+      });
+      await tx.issue.create({
+        data: {
+          id: acmeIssueAId,
+          organizationId: acme,
+          teamId: acmeTeamAId,
+          number: 1,
+          title: "Zadanie A",
+          stateId: acmeStateAId,
+          creatorAccountId: anna.accountId,
+        },
+      });
+      await tx.issue.create({
+        data: {
+          id: acmeIssueBId,
+          organizationId: acme,
+          teamId: acmeTeamBId,
+          number: 1,
+          title: "Zadanie B",
+          stateId: acmeStateBId,
+          creatorAccountId: anna.accountId,
+        },
+      });
+    });
+
+    await withUser(db, celina, async (tx) => {
+      await tx.team.create({ data: { id: globexTeamId, organizationId: globex, key: "GLX", name: "Globex" } });
+      await tx.workflowState.create({
+        data: {
+          id: globexStateId,
+          organizationId: globex,
+          teamId: globexTeamId,
+          name: "Backlog",
+          category: "BACKLOG",
+          color: "gray",
+          position: 0,
+        },
+      });
+      await tx.label.create({
+        data: { id: globexLabelId, organizationId: globex, teamId: globexTeamId, name: "G", color: "red" },
+      });
+      await tx.issue.create({
+        data: {
+          id: globexIssueId,
+          organizationId: globex,
+          teamId: globexTeamId,
+          number: 1,
+          title: "Zadanie Globex",
+          stateId: globexStateId,
+          creatorAccountId: celina.accountId,
+        },
+      });
+    });
+
+    // Jako firma Globex (organization_id = globex przechodzi RLS): próba wskazania ID z Acme musi polec na FK
+    expectForeignKeyError(
+      await withUser(db, celina, (tx) =>
+        tx.workflowState.create({
+          data: {
+            id: uuidv7(),
+            organizationId: globex,
+            teamId: acmeTeamAId,
+            name: "Wstrzyknięty",
+            category: "BACKLOG",
+            color: "gray",
+            position: 1,
+          },
+        }),
+      ).catch((e) => e),
+    );
+
+    expectForeignKeyError(
+      await withUser(db, celina, (tx) =>
+        tx.label.create({
+          data: { id: uuidv7(), organizationId: globex, teamId: acmeTeamAId, name: "Wstrzyknięta", color: "red" },
+        }),
+      ).catch((e) => e),
+    );
+
+    expectForeignKeyError(
+      await withUser(db, celina, (tx) =>
+        tx.issue.create({
+          data: {
+            id: uuidv7(),
+            organizationId: globex,
+            teamId: acmeTeamAId,
+            number: 2,
+            title: "Obcy zespół",
+            stateId: acmeStateAId,
+            creatorAccountId: celina.accountId,
+          },
+        }),
+      ).catch((e) => e),
+    );
+
+    expectForeignKeyError(
+      await withUser(db, celina, (tx) =>
+        tx.issue.create({
+          data: {
+            id: uuidv7(),
+            organizationId: globex,
+            teamId: globexTeamId,
+            number: 2,
+            title: "Obcy status",
+            stateId: acmeStateAId,
+            creatorAccountId: celina.accountId,
+          },
+        }),
+      ).catch((e) => e),
+    );
+
+    expectForeignKeyError(
+      await withUser(db, celina, (tx) =>
+        tx.issue.create({
+          data: {
+            id: uuidv7(),
+            organizationId: globex,
+            teamId: globexTeamId,
+            number: 3,
+            title: "Obcy rodzic",
+            stateId: globexStateId,
+            parentId: acmeIssueAId,
+            creatorAccountId: celina.accountId,
+          },
+        }),
+      ).catch((e) => e),
+    );
+
+    expectForeignKeyError(
+      await withUser(db, celina, (tx) =>
+        tx.issueLabel.create({
+          data: { issueId: acmeIssueAId, labelId: globexLabelId, organizationId: globex, teamId: globexTeamId },
+        }),
+      ).catch((e) => e),
+    );
+
+    expectForeignKeyError(
+      await withUser(db, celina, (tx) =>
+        tx.issueLabel.create({
+          data: { issueId: globexIssueId, labelId: acmeLabelAId, organizationId: globex, teamId: globexTeamId },
+        }),
+      ).catch((e) => e),
+    );
+
+    expectForeignKeyError(
+      await withUser(db, celina, (tx) =>
+        tx.issueRelation.create({
+          data: {
+            id: uuidv7(),
+            organizationId: globex,
+            issueId: globexIssueId,
+            relatedIssueId: acmeIssueAId,
+            type: "RELATED",
+          },
+        }),
+      ).catch((e) => e),
+    );
+
+    expectForeignKeyError(
+      await withUser(db, celina, (tx) =>
+        tx.issueRelation.create({
+          data: {
+            id: uuidv7(),
+            organizationId: globex,
+            issueId: acmeIssueAId,
+            relatedIssueId: globexIssueId,
+            type: "BLOCKS",
+          },
+        }),
+      ).catch((e) => e),
+    );
+
+    // W obrębie tej samej firmy (Acme): status, rodzic i etykieta z innego zespołu muszą polec na FK
+    expectForeignKeyError(
+      await withUser(db, anna, (tx) =>
+        tx.issue.create({
+          data: {
+            id: uuidv7(),
+            organizationId: acme,
+            teamId: acmeTeamAId,
+            number: 2,
+            title: "Status innego zespołu",
+            stateId: acmeStateBId,
+            creatorAccountId: anna.accountId,
+          },
+        }),
+      ).catch((e) => e),
+    );
+
+    expectForeignKeyError(
+      await withUser(db, anna, (tx) =>
+        tx.issue.create({
+          data: {
+            id: uuidv7(),
+            organizationId: acme,
+            teamId: acmeTeamAId,
+            number: 3,
+            title: "Rodzic innego zespołu",
+            stateId: acmeStateAId,
+            parentId: acmeIssueBId,
+            creatorAccountId: anna.accountId,
+          },
+        }),
+      ).catch((e) => e),
+    );
+
+    expectForeignKeyError(
+      await withUser(db, anna, (tx) =>
+        tx.issueLabel.create({
+          data: { issueId: acmeIssueAId, labelId: acmeLabelBId, organizationId: acme, teamId: acmeTeamAId },
+        }),
+      ).catch((e) => e),
+    );
+
+    // Unikalny indeks pary RELATED blokuje odwrotny duplikat na poziomie bazy
+    await withUser(db, anna, (tx) =>
+      tx.issueRelation.create({
+        data: {
+          id: uuidv7(),
+          organizationId: acme,
+          issueId: acmeIssueAId,
+          relatedIssueId: acmeIssueBId,
+          type: "RELATED",
+        },
+      }),
+    );
+    const reverseRelatedErr = await withUser(db, anna, (tx) =>
+      tx.issueRelation.create({
+        data: {
+          id: uuidv7(),
+          organizationId: acme,
+          issueId: acmeIssueBId,
+          relatedIssueId: acmeIssueAId,
+          type: "RELATED",
+        },
+      }),
+    ).catch((e) => e);
+    expect(reverseRelatedErr).toBeInstanceOf(Prisma.PrismaClientKnownRequestError);
+    expect((reverseRelatedErr as Prisma.PrismaClientKnownRequestError).code).toBe("P2002");
   });
 
   it("atomowo przydziela kolejne numery zadań przy równoległym tworzeniu bez kolizji i luk", async () => {

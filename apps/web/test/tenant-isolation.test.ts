@@ -19,6 +19,7 @@ async function cleanupTenant(actor: Actor): Promise<void> {
   await withUser(getDb(), actor, async (tx) => {
     await tx.issueRelation.deleteMany({});
     await tx.issueLabel.deleteMany({});
+    await tx.issue.updateMany({ where: { parentId: { not: null } }, data: { parentId: null } });
     await tx.issue.deleteMany({});
     await tx.label.deleteMany({});
     await tx.workflowState.deleteMany({});

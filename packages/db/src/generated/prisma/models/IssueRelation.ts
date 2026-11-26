@@ -246,7 +246,6 @@ export type IssueRelationScalarWhereWithAggregatesInput = {
 
 export type IssueRelationCreateInput = {
   id: string
-  organizationId: string
   type: $Enums.IssueRelationType
   createdAt?: Date | string
   issue: Prisma.IssueCreateNestedOneWithoutOutgoingRelationsInput
@@ -264,7 +263,6 @@ export type IssueRelationUncheckedCreateInput = {
 
 export type IssueRelationUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumIssueRelationTypeFieldUpdateOperationsInput | $Enums.IssueRelationType
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   issue?: Prisma.IssueUpdateOneRequiredWithoutOutgoingRelationsNestedInput
@@ -291,7 +289,6 @@ export type IssueRelationCreateManyInput = {
 
 export type IssueRelationUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumIssueRelationTypeFieldUpdateOperationsInput | $Enums.IssueRelationType
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -438,7 +435,6 @@ export type EnumIssueRelationTypeFieldUpdateOperationsInput = {
 
 export type IssueRelationCreateWithoutIssueInput = {
   id: string
-  organizationId: string
   type: $Enums.IssueRelationType
   createdAt?: Date | string
   relatedIssue: Prisma.IssueCreateNestedOneWithoutIncomingRelationsInput
@@ -446,7 +442,6 @@ export type IssueRelationCreateWithoutIssueInput = {
 
 export type IssueRelationUncheckedCreateWithoutIssueInput = {
   id: string
-  organizationId: string
   relatedIssueId: string
   type: $Enums.IssueRelationType
   createdAt?: Date | string
@@ -464,7 +459,6 @@ export type IssueRelationCreateManyIssueInputEnvelope = {
 
 export type IssueRelationCreateWithoutRelatedIssueInput = {
   id: string
-  organizationId: string
   type: $Enums.IssueRelationType
   createdAt?: Date | string
   issue: Prisma.IssueCreateNestedOneWithoutOutgoingRelationsInput
@@ -472,7 +466,6 @@ export type IssueRelationCreateWithoutRelatedIssueInput = {
 
 export type IssueRelationUncheckedCreateWithoutRelatedIssueInput = {
   id: string
-  organizationId: string
   issueId: string
   type: $Enums.IssueRelationType
   createdAt?: Date | string
@@ -534,7 +527,6 @@ export type IssueRelationUpdateManyWithWhereWithoutRelatedIssueInput = {
 
 export type IssueRelationCreateManyIssueInput = {
   id: string
-  organizationId: string
   relatedIssueId: string
   type: $Enums.IssueRelationType
   createdAt?: Date | string
@@ -542,7 +534,6 @@ export type IssueRelationCreateManyIssueInput = {
 
 export type IssueRelationCreateManyRelatedIssueInput = {
   id: string
-  organizationId: string
   issueId: string
   type: $Enums.IssueRelationType
   createdAt?: Date | string
@@ -550,7 +541,6 @@ export type IssueRelationCreateManyRelatedIssueInput = {
 
 export type IssueRelationUpdateWithoutIssueInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumIssueRelationTypeFieldUpdateOperationsInput | $Enums.IssueRelationType
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   relatedIssue?: Prisma.IssueUpdateOneRequiredWithoutIncomingRelationsNestedInput
@@ -558,7 +548,6 @@ export type IssueRelationUpdateWithoutIssueInput = {
 
 export type IssueRelationUncheckedUpdateWithoutIssueInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   relatedIssueId?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumIssueRelationTypeFieldUpdateOperationsInput | $Enums.IssueRelationType
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -566,7 +555,6 @@ export type IssueRelationUncheckedUpdateWithoutIssueInput = {
 
 export type IssueRelationUncheckedUpdateManyWithoutIssueInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   relatedIssueId?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumIssueRelationTypeFieldUpdateOperationsInput | $Enums.IssueRelationType
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -574,7 +562,6 @@ export type IssueRelationUncheckedUpdateManyWithoutIssueInput = {
 
 export type IssueRelationUpdateWithoutRelatedIssueInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumIssueRelationTypeFieldUpdateOperationsInput | $Enums.IssueRelationType
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   issue?: Prisma.IssueUpdateOneRequiredWithoutOutgoingRelationsNestedInput
@@ -582,7 +569,6 @@ export type IssueRelationUpdateWithoutRelatedIssueInput = {
 
 export type IssueRelationUncheckedUpdateWithoutRelatedIssueInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   issueId?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumIssueRelationTypeFieldUpdateOperationsInput | $Enums.IssueRelationType
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -590,7 +576,6 @@ export type IssueRelationUncheckedUpdateWithoutRelatedIssueInput = {
 
 export type IssueRelationUncheckedUpdateManyWithoutRelatedIssueInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   issueId?: Prisma.StringFieldUpdateOperationsInput | string
   type?: Prisma.EnumIssueRelationTypeFieldUpdateOperationsInput | $Enums.IssueRelationType
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string

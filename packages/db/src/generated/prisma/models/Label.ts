@@ -216,6 +216,7 @@ export type LabelOrderByWithRelationInput = {
 
 export type LabelWhereUniqueInput = Prisma.AtLeast<{
   id?: string
+  organizationId_teamId_id?: Prisma.LabelOrganizationIdTeamIdIdCompoundUniqueInput
   AND?: Prisma.LabelWhereInput | Prisma.LabelWhereInput[]
   OR?: Prisma.LabelWhereInput[]
   NOT?: Prisma.LabelWhereInput | Prisma.LabelWhereInput[]
@@ -227,7 +228,7 @@ export type LabelWhereUniqueInput = Prisma.AtLeast<{
   archivedAt?: Prisma.DateTimeNullableFilter<"Label"> | Date | string | null
   team?: Prisma.XOR<Prisma.TeamScalarRelationFilter, Prisma.TeamWhereInput>
   issueLabels?: Prisma.IssueLabelListRelationFilter
-}, "id">
+}, "id" | "organizationId_teamId_id">
 
 export type LabelOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
@@ -257,7 +258,6 @@ export type LabelScalarWhereWithAggregatesInput = {
 
 export type LabelCreateInput = {
   id: string
-  organizationId: string
   name: string
   color: string
   createdAt?: Date | string
@@ -279,7 +279,6 @@ export type LabelUncheckedCreateInput = {
 
 export type LabelUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   color?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -311,7 +310,6 @@ export type LabelCreateManyInput = {
 
 export type LabelUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   color?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -336,6 +334,12 @@ export type LabelListRelationFilter = {
 
 export type LabelOrderByRelationAggregateInput = {
   _count?: Prisma.SortOrder
+}
+
+export type LabelOrganizationIdTeamIdIdCompoundUniqueInput = {
+  organizationId: string
+  teamId: string
+  id: string
 }
 
 export type LabelCountOrderByAggregateInput = {
@@ -431,7 +435,6 @@ export type LabelUpdateOneRequiredWithoutIssueLabelsNestedInput = {
 
 export type LabelCreateWithoutTeamInput = {
   id: string
-  organizationId: string
   name: string
   color: string
   createdAt?: Date | string
@@ -441,7 +444,6 @@ export type LabelCreateWithoutTeamInput = {
 
 export type LabelUncheckedCreateWithoutTeamInput = {
   id: string
-  organizationId: string
   name: string
   color: string
   createdAt?: Date | string
@@ -490,7 +492,6 @@ export type LabelScalarWhereInput = {
 
 export type LabelCreateWithoutIssueLabelsInput = {
   id: string
-  organizationId: string
   name: string
   color: string
   createdAt?: Date | string
@@ -526,7 +527,6 @@ export type LabelUpdateToOneWithWhereWithoutIssueLabelsInput = {
 
 export type LabelUpdateWithoutIssueLabelsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   color?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -546,7 +546,6 @@ export type LabelUncheckedUpdateWithoutIssueLabelsInput = {
 
 export type LabelCreateManyTeamInput = {
   id: string
-  organizationId: string
   name: string
   color: string
   createdAt?: Date | string
@@ -555,7 +554,6 @@ export type LabelCreateManyTeamInput = {
 
 export type LabelUpdateWithoutTeamInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   color?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -565,7 +563,6 @@ export type LabelUpdateWithoutTeamInput = {
 
 export type LabelUncheckedUpdateWithoutTeamInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   color?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -575,7 +572,6 @@ export type LabelUncheckedUpdateWithoutTeamInput = {
 
 export type LabelUncheckedUpdateManyWithoutTeamInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   color?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string

@@ -1,6 +1,7 @@
 -- Migracja etapu 1a KivoTasks (KivoTasks#9, ADR-0037, ADR-0103):
 -- tabele zespołów, statusów obiegu, etykiet, zadań, etykiet zadań i relacji między zadaniami
--- wraz z indeksem pełnotekstowym GIN oraz wymuszonym RLS (ENABLE + FORCE ROW LEVEL SECURITY).
+-- wraz z indeksem pełnotekstowym GIN, złożonymi kluczami obcymi w obrębie firmy i zespołu
+-- oraz wymuszonym RLS (ENABLE + FORCE ROW LEVEL SECURITY).
 
 -- CreateEnum
 CREATE TYPE "public"."WorkflowStateCategory" AS ENUM ('BACKLOG', 'UNSTARTED', 'STARTED', 'COMPLETED', 'CANCELED');
@@ -100,6 +101,7 @@ CREATE TABLE "public"."issue_labels" (
     "issue_id" UUID NOT NULL,
     "label_id" UUID NOT NULL,
     "organization_id" UUID NOT NULL,
+    "team_id" UUID NOT NULL,
 
     CONSTRAINT "issue_labels_pkey" PRIMARY KEY ("issue_id", "label_id")
 );
@@ -118,18 +120,22 @@ CREATE TABLE "public"."issue_relations" (
 );
 
 -- CreateIndex
+CREATE UNIQUE INDEX "teams_organization_id_id_key" ON "public"."teams"("organization_id", "id");
 CREATE UNIQUE INDEX "teams_organization_id_key_key" ON "public"."teams"("organization_id", "key");
 CREATE INDEX "teams_organization_id_archived_at_idx" ON "public"."teams"("organization_id", "archived_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "workflow_states_organization_id_team_id_id_key" ON "public"."workflow_states"("organization_id", "team_id", "id");
 CREATE INDEX "workflow_states_organization_id_team_id_position_idx" ON "public"."workflow_states"("organization_id", "team_id", "position");
 CREATE INDEX "workflow_states_team_id_archived_at_idx" ON "public"."workflow_states"("team_id", "archived_at");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "labels_organization_id_team_id_id_key" ON "public"."labels"("organization_id", "team_id", "id");
 CREATE UNIQUE INDEX "labels_team_id_lower_name_key" ON "public"."labels"("team_id", lower("name")) WHERE "archived_at" IS NULL;
-CREATE INDEX "labels_organization_id_team_id_idx" ON "public"."labels"("organization_id", "team_id");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "issues_organization_id_id_key" ON "public"."issues"("organization_id", "id");
+CREATE UNIQUE INDEX "issues_organization_id_team_id_id_key" ON "public"."issues"("organization_id", "team_id", "id");
 CREATE UNIQUE INDEX "issues_team_id_number_key" ON "public"."issues"("team_id", "number");
 CREATE INDEX "issues_organization_id_team_id_deleted_at_idx" ON "public"."issues"("organization_id", "team_id", "deleted_at");
 CREATE INDEX "issues_organization_id_state_id_deleted_at_idx" ON "public"."issues"("organization_id", "state_id", "deleted_at");
@@ -143,41 +149,44 @@ CREATE INDEX "issues_team_id_sort_order_idx" ON "public"."issues"("team_id", "so
 CREATE INDEX "issues_search_vector_idx" ON "public"."issues" USING GIN ("search_vector");
 
 -- CreateIndex
+CREATE INDEX "issue_labels_organization_id_team_id_label_id_idx" ON "public"."issue_labels"("organization_id", "team_id", "label_id");
 CREATE INDEX "issue_labels_organization_id_label_id_idx" ON "public"."issue_labels"("organization_id", "label_id");
-CREATE INDEX "issue_labels_label_id_idx" ON "public"."issue_labels"("label_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "issue_relations_issue_id_related_issue_id_type_key" ON "public"."issue_relations"("issue_id", "related_issue_id", "type");
+CREATE UNIQUE INDEX "issue_relations_related_pair_key"
+    ON "public"."issue_relations"(LEAST("issue_id", "related_issue_id"), GREATEST("issue_id", "related_issue_id"))
+    WHERE "type" = 'RELATED';
 CREATE INDEX "issue_relations_organization_id_issue_id_idx" ON "public"."issue_relations"("organization_id", "issue_id");
 CREATE INDEX "issue_relations_organization_id_related_issue_id_idx" ON "public"."issue_relations"("organization_id", "related_issue_id");
 
--- AddForeignKey
-ALTER TABLE "public"."workflow_states" ADD CONSTRAINT "workflow_states_team_id_fkey"
-    FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- AddForeignKey (złożone klucze obce wiążą rekordy z firmą i zespołem, bo sprawdzanie FK omija RLS)
+ALTER TABLE "public"."workflow_states" ADD CONSTRAINT "workflow_states_organization_id_team_id_fkey"
+    FOREIGN KEY ("organization_id", "team_id") REFERENCES "public"."teams"("organization_id", "id") ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "public"."labels" ADD CONSTRAINT "labels_team_id_fkey"
-    FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."labels" ADD CONSTRAINT "labels_organization_id_team_id_fkey"
+    FOREIGN KEY ("organization_id", "team_id") REFERENCES "public"."teams"("organization_id", "id") ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "public"."issues" ADD CONSTRAINT "issues_team_id_fkey"
-    FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."issues" ADD CONSTRAINT "issues_organization_id_team_id_fkey"
+    FOREIGN KEY ("organization_id", "team_id") REFERENCES "public"."teams"("organization_id", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-ALTER TABLE "public"."issues" ADD CONSTRAINT "issues_state_id_fkey"
-    FOREIGN KEY ("state_id") REFERENCES "public"."workflow_states"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "public"."issues" ADD CONSTRAINT "issues_organization_id_team_id_state_id_fkey"
+    FOREIGN KEY ("organization_id", "team_id", "state_id") REFERENCES "public"."workflow_states"("organization_id", "team_id", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-ALTER TABLE "public"."issues" ADD CONSTRAINT "issues_parent_id_fkey"
-    FOREIGN KEY ("parent_id") REFERENCES "public"."issues"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "public"."issues" ADD CONSTRAINT "issues_organization_id_team_id_parent_id_fkey"
+    FOREIGN KEY ("organization_id", "team_id", "parent_id") REFERENCES "public"."issues"("organization_id", "team_id", "id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
-ALTER TABLE "public"."issue_labels" ADD CONSTRAINT "issue_labels_issue_id_fkey"
-    FOREIGN KEY ("issue_id") REFERENCES "public"."issues"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."issue_labels" ADD CONSTRAINT "issue_labels_organization_id_team_id_issue_id_fkey"
+    FOREIGN KEY ("organization_id", "team_id", "issue_id") REFERENCES "public"."issues"("organization_id", "team_id", "id") ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "public"."issue_labels" ADD CONSTRAINT "issue_labels_label_id_fkey"
-    FOREIGN KEY ("label_id") REFERENCES "public"."labels"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."issue_labels" ADD CONSTRAINT "issue_labels_organization_id_team_id_label_id_fkey"
+    FOREIGN KEY ("organization_id", "team_id", "label_id") REFERENCES "public"."labels"("organization_id", "team_id", "id") ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "public"."issue_relations" ADD CONSTRAINT "issue_relations_issue_id_fkey"
-    FOREIGN KEY ("issue_id") REFERENCES "public"."issues"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."issue_relations" ADD CONSTRAINT "issue_relations_organization_id_issue_id_fkey"
+    FOREIGN KEY ("organization_id", "issue_id") REFERENCES "public"."issues"("organization_id", "id") ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE "public"."issue_relations" ADD CONSTRAINT "issue_relations_related_issue_id_fkey"
-    FOREIGN KEY ("related_issue_id") REFERENCES "public"."issues"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "public"."issue_relations" ADD CONSTRAINT "issue_relations_organization_id_related_issue_id_fkey"
+    FOREIGN KEY ("organization_id", "related_issue_id") REFERENCES "public"."issues"("organization_id", "id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- ── Uprawnienia roli aplikacji na nowych tabelach ──────────────────────────────────────────────────
 GRANT SELECT, INSERT, UPDATE, DELETE ON

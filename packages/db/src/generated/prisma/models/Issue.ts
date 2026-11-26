@@ -389,6 +389,8 @@ export type IssueOrderByWithRelationInput = {
 
 export type IssueWhereUniqueInput = Prisma.AtLeast<{
   id?: string
+  organizationId_id?: Prisma.IssueOrganizationIdIdCompoundUniqueInput
+  organizationId_teamId_id?: Prisma.IssueOrganizationIdTeamIdIdCompoundUniqueInput
   teamId_number?: Prisma.IssueTeamIdNumberCompoundUniqueInput
   AND?: Prisma.IssueWhereInput | Prisma.IssueWhereInput[]
   OR?: Prisma.IssueWhereInput[]
@@ -419,7 +421,7 @@ export type IssueWhereUniqueInput = Prisma.AtLeast<{
   issueLabels?: Prisma.IssueLabelListRelationFilter
   outgoingRelations?: Prisma.IssueRelationListRelationFilter
   incomingRelations?: Prisma.IssueRelationListRelationFilter
-}, "id" | "teamId_number">
+}, "id" | "organizationId_id" | "organizationId_teamId_id" | "teamId_number">
 
 export type IssueOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
@@ -477,7 +479,6 @@ export type IssueScalarWhereWithAggregatesInput = {
 
 export type IssueCreateInput = {
   id: string
-  organizationId: string
   number: number
   title: string
   description?: string | null
@@ -531,7 +532,6 @@ export type IssueUncheckedCreateInput = {
 
 export type IssueUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   number?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -608,7 +608,6 @@ export type IssueCreateManyInput = {
 
 export type IssueUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   number?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -662,6 +661,17 @@ export type IssueOrderByRelationAggregateInput = {
 export type IssueNullableScalarRelationFilter = {
   is?: Prisma.IssueWhereInput | null
   isNot?: Prisma.IssueWhereInput | null
+}
+
+export type IssueOrganizationIdIdCompoundUniqueInput = {
+  organizationId: string
+  id: string
+}
+
+export type IssueOrganizationIdTeamIdIdCompoundUniqueInput = {
+  organizationId: string
+  teamId: string
+  id: string
 }
 
 export type IssueTeamIdNumberCompoundUniqueInput = {
@@ -963,7 +973,6 @@ export type IssueUpdateOneRequiredWithoutIncomingRelationsNestedInput = {
 
 export type IssueCreateWithoutTeamInput = {
   id: string
-  organizationId: string
   number: number
   title: string
   description?: string | null
@@ -989,7 +998,6 @@ export type IssueCreateWithoutTeamInput = {
 
 export type IssueUncheckedCreateWithoutTeamInput = {
   id: string
-  organizationId: string
   number: number
   title: string
   description?: string | null
@@ -1067,7 +1075,6 @@ export type IssueScalarWhereInput = {
 
 export type IssueCreateWithoutStateInput = {
   id: string
-  organizationId: string
   number: number
   title: string
   description?: string | null
@@ -1093,8 +1100,6 @@ export type IssueCreateWithoutStateInput = {
 
 export type IssueUncheckedCreateWithoutStateInput = {
   id: string
-  organizationId: string
-  teamId: string
   number: number
   title: string
   description?: string | null
@@ -1145,7 +1150,6 @@ export type IssueUpdateManyWithWhereWithoutStateInput = {
 
 export type IssueCreateWithoutChildrenInput = {
   id: string
-  organizationId: string
   number: number
   title: string
   description?: string | null
@@ -1202,7 +1206,6 @@ export type IssueCreateOrConnectWithoutChildrenInput = {
 
 export type IssueCreateWithoutParentInput = {
   id: string
-  organizationId: string
   number: number
   title: string
   description?: string | null
@@ -1228,8 +1231,6 @@ export type IssueCreateWithoutParentInput = {
 
 export type IssueUncheckedCreateWithoutParentInput = {
   id: string
-  organizationId: string
-  teamId: string
   number: number
   title: string
   description?: string | null
@@ -1275,7 +1276,6 @@ export type IssueUpdateToOneWithWhereWithoutChildrenInput = {
 
 export type IssueUpdateWithoutChildrenInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   number?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1343,7 +1343,6 @@ export type IssueUpdateManyWithWhereWithoutParentInput = {
 
 export type IssueCreateWithoutIssueLabelsInput = {
   id: string
-  organizationId: string
   number: number
   title: string
   description?: string | null
@@ -1411,7 +1410,6 @@ export type IssueUpdateToOneWithWhereWithoutIssueLabelsInput = {
 
 export type IssueUpdateWithoutIssueLabelsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   number?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1463,7 +1461,6 @@ export type IssueUncheckedUpdateWithoutIssueLabelsInput = {
 
 export type IssueCreateWithoutOutgoingRelationsInput = {
   id: string
-  organizationId: string
   number: number
   title: string
   description?: string | null
@@ -1520,7 +1517,6 @@ export type IssueCreateOrConnectWithoutOutgoingRelationsInput = {
 
 export type IssueCreateWithoutIncomingRelationsInput = {
   id: string
-  organizationId: string
   number: number
   title: string
   description?: string | null
@@ -1588,7 +1584,6 @@ export type IssueUpdateToOneWithWhereWithoutOutgoingRelationsInput = {
 
 export type IssueUpdateWithoutOutgoingRelationsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   number?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1651,7 +1646,6 @@ export type IssueUpdateToOneWithWhereWithoutIncomingRelationsInput = {
 
 export type IssueUpdateWithoutIncomingRelationsInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   number?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1703,7 +1697,6 @@ export type IssueUncheckedUpdateWithoutIncomingRelationsInput = {
 
 export type IssueCreateManyTeamInput = {
   id: string
-  organizationId: string
   number: number
   title: string
   description?: string | null
@@ -1725,7 +1718,6 @@ export type IssueCreateManyTeamInput = {
 
 export type IssueUpdateWithoutTeamInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   number?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1751,7 +1743,6 @@ export type IssueUpdateWithoutTeamInput = {
 
 export type IssueUncheckedUpdateWithoutTeamInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   number?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1777,7 +1768,6 @@ export type IssueUncheckedUpdateWithoutTeamInput = {
 
 export type IssueUncheckedUpdateManyWithoutTeamInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   number?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1799,8 +1789,6 @@ export type IssueUncheckedUpdateManyWithoutTeamInput = {
 
 export type IssueCreateManyStateInput = {
   id: string
-  organizationId: string
-  teamId: string
   number: number
   title: string
   description?: string | null
@@ -1821,7 +1809,6 @@ export type IssueCreateManyStateInput = {
 
 export type IssueUpdateWithoutStateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   number?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1847,8 +1834,6 @@ export type IssueUpdateWithoutStateInput = {
 
 export type IssueUncheckedUpdateWithoutStateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
-  teamId?: Prisma.StringFieldUpdateOperationsInput | string
   number?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1873,8 +1858,6 @@ export type IssueUncheckedUpdateWithoutStateInput = {
 
 export type IssueUncheckedUpdateManyWithoutStateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
-  teamId?: Prisma.StringFieldUpdateOperationsInput | string
   number?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1895,8 +1878,6 @@ export type IssueUncheckedUpdateManyWithoutStateInput = {
 
 export type IssueCreateManyParentInput = {
   id: string
-  organizationId: string
-  teamId: string
   number: number
   title: string
   description?: string | null
@@ -1917,7 +1898,6 @@ export type IssueCreateManyParentInput = {
 
 export type IssueUpdateWithoutParentInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   number?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1943,8 +1923,6 @@ export type IssueUpdateWithoutParentInput = {
 
 export type IssueUncheckedUpdateWithoutParentInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
-  teamId?: Prisma.StringFieldUpdateOperationsInput | string
   number?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1969,8 +1947,6 @@ export type IssueUncheckedUpdateWithoutParentInput = {
 
 export type IssueUncheckedUpdateManyWithoutParentInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
-  teamId?: Prisma.StringFieldUpdateOperationsInput | string
   number?: Prisma.IntFieldUpdateOperationsInput | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
   description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null

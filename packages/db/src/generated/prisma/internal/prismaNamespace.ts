@@ -1233,7 +1233,8 @@ export type IssueScalarFieldEnum = (typeof IssueScalarFieldEnum)[keyof typeof Is
 export const IssueLabelScalarFieldEnum = {
   issueId: 'issueId',
   labelId: 'labelId',
-  organizationId: 'organizationId'
+  organizationId: 'organizationId',
+  teamId: 'teamId'
 } as const
 
 export type IssueLabelScalarFieldEnum = (typeof IssueLabelScalarFieldEnum)[keyof typeof IssueLabelScalarFieldEnum]

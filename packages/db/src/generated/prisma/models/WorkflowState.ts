@@ -277,6 +277,7 @@ export type WorkflowStateOrderByWithRelationInput = {
 
 export type WorkflowStateWhereUniqueInput = Prisma.AtLeast<{
   id?: string
+  organizationId_teamId_id?: Prisma.WorkflowStateOrganizationIdTeamIdIdCompoundUniqueInput
   AND?: Prisma.WorkflowStateWhereInput | Prisma.WorkflowStateWhereInput[]
   OR?: Prisma.WorkflowStateWhereInput[]
   NOT?: Prisma.WorkflowStateWhereInput | Prisma.WorkflowStateWhereInput[]
@@ -291,7 +292,7 @@ export type WorkflowStateWhereUniqueInput = Prisma.AtLeast<{
   archivedAt?: Prisma.DateTimeNullableFilter<"WorkflowState"> | Date | string | null
   team?: Prisma.XOR<Prisma.TeamScalarRelationFilter, Prisma.TeamWhereInput>
   issues?: Prisma.IssueListRelationFilter
-}, "id">
+}, "id" | "organizationId_teamId_id">
 
 export type WorkflowStateOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
@@ -329,7 +330,6 @@ export type WorkflowStateScalarWhereWithAggregatesInput = {
 
 export type WorkflowStateCreateInput = {
   id: string
-  organizationId: string
   name: string
   category: $Enums.WorkflowStateCategory
   color: string
@@ -357,7 +357,6 @@ export type WorkflowStateUncheckedCreateInput = {
 
 export type WorkflowStateUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.EnumWorkflowStateCategoryFieldUpdateOperationsInput | $Enums.WorkflowStateCategory
   color?: Prisma.StringFieldUpdateOperationsInput | string
@@ -398,7 +397,6 @@ export type WorkflowStateCreateManyInput = {
 
 export type WorkflowStateUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.EnumWorkflowStateCategoryFieldUpdateOperationsInput | $Enums.WorkflowStateCategory
   color?: Prisma.StringFieldUpdateOperationsInput | string
@@ -429,6 +427,12 @@ export type WorkflowStateListRelationFilter = {
 
 export type WorkflowStateOrderByRelationAggregateInput = {
   _count?: Prisma.SortOrder
+}
+
+export type WorkflowStateOrganizationIdTeamIdIdCompoundUniqueInput = {
+  organizationId: string
+  teamId: string
+  id: string
 }
 
 export type WorkflowStateCountOrderByAggregateInput = {
@@ -545,7 +549,6 @@ export type WorkflowStateUpdateOneRequiredWithoutIssuesNestedInput = {
 
 export type WorkflowStateCreateWithoutTeamInput = {
   id: string
-  organizationId: string
   name: string
   category: $Enums.WorkflowStateCategory
   color: string
@@ -558,7 +561,6 @@ export type WorkflowStateCreateWithoutTeamInput = {
 
 export type WorkflowStateUncheckedCreateWithoutTeamInput = {
   id: string
-  organizationId: string
   name: string
   category: $Enums.WorkflowStateCategory
   color: string
@@ -613,7 +615,6 @@ export type WorkflowStateScalarWhereInput = {
 
 export type WorkflowStateCreateWithoutIssuesInput = {
   id: string
-  organizationId: string
   name: string
   category: $Enums.WorkflowStateCategory
   color: string
@@ -655,7 +656,6 @@ export type WorkflowStateUpdateToOneWithWhereWithoutIssuesInput = {
 
 export type WorkflowStateUpdateWithoutIssuesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.EnumWorkflowStateCategoryFieldUpdateOperationsInput | $Enums.WorkflowStateCategory
   color?: Prisma.StringFieldUpdateOperationsInput | string
@@ -681,7 +681,6 @@ export type WorkflowStateUncheckedUpdateWithoutIssuesInput = {
 
 export type WorkflowStateCreateManyTeamInput = {
   id: string
-  organizationId: string
   name: string
   category: $Enums.WorkflowStateCategory
   color: string
@@ -693,7 +692,6 @@ export type WorkflowStateCreateManyTeamInput = {
 
 export type WorkflowStateUpdateWithoutTeamInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.EnumWorkflowStateCategoryFieldUpdateOperationsInput | $Enums.WorkflowStateCategory
   color?: Prisma.StringFieldUpdateOperationsInput | string
@@ -706,7 +704,6 @@ export type WorkflowStateUpdateWithoutTeamInput = {
 
 export type WorkflowStateUncheckedUpdateWithoutTeamInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.EnumWorkflowStateCategoryFieldUpdateOperationsInput | $Enums.WorkflowStateCategory
   color?: Prisma.StringFieldUpdateOperationsInput | string
@@ -719,7 +716,6 @@ export type WorkflowStateUncheckedUpdateWithoutTeamInput = {
 
 export type WorkflowStateUncheckedUpdateManyWithoutTeamInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   name?: Prisma.StringFieldUpdateOperationsInput | string
   category?: Prisma.EnumWorkflowStateCategoryFieldUpdateOperationsInput | $Enums.WorkflowStateCategory
   color?: Prisma.StringFieldUpdateOperationsInput | string

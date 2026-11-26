@@ -28,18 +28,21 @@ export type IssueLabelMinAggregateOutputType = {
   issueId: string | null
   labelId: string | null
   organizationId: string | null
+  teamId: string | null
 }
 
 export type IssueLabelMaxAggregateOutputType = {
   issueId: string | null
   labelId: string | null
   organizationId: string | null
+  teamId: string | null
 }
 
 export type IssueLabelCountAggregateOutputType = {
   issueId: number
   labelId: number
   organizationId: number
+  teamId: number
   _all: number
 }
 
@@ -48,18 +51,21 @@ export type IssueLabelMinAggregateInputType = {
   issueId?: true
   labelId?: true
   organizationId?: true
+  teamId?: true
 }
 
 export type IssueLabelMaxAggregateInputType = {
   issueId?: true
   labelId?: true
   organizationId?: true
+  teamId?: true
 }
 
 export type IssueLabelCountAggregateInputType = {
   issueId?: true
   labelId?: true
   organizationId?: true
+  teamId?: true
   _all?: true
 }
 
@@ -139,6 +145,7 @@ export type IssueLabelGroupByOutputType = {
   issueId: string
   labelId: string
   organizationId: string
+  teamId: string
   _count: IssueLabelCountAggregateOutputType | null
   _min: IssueLabelMinAggregateOutputType | null
   _max: IssueLabelMaxAggregateOutputType | null
@@ -166,6 +173,7 @@ export type IssueLabelWhereInput = {
   issueId?: Prisma.UuidFilter<"IssueLabel"> | string
   labelId?: Prisma.UuidFilter<"IssueLabel"> | string
   organizationId?: Prisma.UuidFilter<"IssueLabel"> | string
+  teamId?: Prisma.UuidFilter<"IssueLabel"> | string
   issue?: Prisma.XOR<Prisma.IssueScalarRelationFilter, Prisma.IssueWhereInput>
   label?: Prisma.XOR<Prisma.LabelScalarRelationFilter, Prisma.LabelWhereInput>
 }
@@ -174,6 +182,7 @@ export type IssueLabelOrderByWithRelationInput = {
   issueId?: Prisma.SortOrder
   labelId?: Prisma.SortOrder
   organizationId?: Prisma.SortOrder
+  teamId?: Prisma.SortOrder
   issue?: Prisma.IssueOrderByWithRelationInput
   label?: Prisma.LabelOrderByWithRelationInput
 }
@@ -186,6 +195,7 @@ export type IssueLabelWhereUniqueInput = Prisma.AtLeast<{
   issueId?: Prisma.UuidFilter<"IssueLabel"> | string
   labelId?: Prisma.UuidFilter<"IssueLabel"> | string
   organizationId?: Prisma.UuidFilter<"IssueLabel"> | string
+  teamId?: Prisma.UuidFilter<"IssueLabel"> | string
   issue?: Prisma.XOR<Prisma.IssueScalarRelationFilter, Prisma.IssueWhereInput>
   label?: Prisma.XOR<Prisma.LabelScalarRelationFilter, Prisma.LabelWhereInput>
 }, "issueId_labelId">
@@ -194,6 +204,7 @@ export type IssueLabelOrderByWithAggregationInput = {
   issueId?: Prisma.SortOrder
   labelId?: Prisma.SortOrder
   organizationId?: Prisma.SortOrder
+  teamId?: Prisma.SortOrder
   _count?: Prisma.IssueLabelCountOrderByAggregateInput
   _max?: Prisma.IssueLabelMaxOrderByAggregateInput
   _min?: Prisma.IssueLabelMinOrderByAggregateInput
@@ -206,10 +217,10 @@ export type IssueLabelScalarWhereWithAggregatesInput = {
   issueId?: Prisma.UuidWithAggregatesFilter<"IssueLabel"> | string
   labelId?: Prisma.UuidWithAggregatesFilter<"IssueLabel"> | string
   organizationId?: Prisma.UuidWithAggregatesFilter<"IssueLabel"> | string
+  teamId?: Prisma.UuidWithAggregatesFilter<"IssueLabel"> | string
 }
 
 export type IssueLabelCreateInput = {
-  organizationId: string
   issue: Prisma.IssueCreateNestedOneWithoutIssueLabelsInput
   label: Prisma.LabelCreateNestedOneWithoutIssueLabelsInput
 }
@@ -218,10 +229,10 @@ export type IssueLabelUncheckedCreateInput = {
   issueId: string
   labelId: string
   organizationId: string
+  teamId: string
 }
 
 export type IssueLabelUpdateInput = {
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   issue?: Prisma.IssueUpdateOneRequiredWithoutIssueLabelsNestedInput
   label?: Prisma.LabelUpdateOneRequiredWithoutIssueLabelsNestedInput
 }
@@ -230,22 +241,25 @@ export type IssueLabelUncheckedUpdateInput = {
   issueId?: Prisma.StringFieldUpdateOperationsInput | string
   labelId?: Prisma.StringFieldUpdateOperationsInput | string
   organizationId?: Prisma.StringFieldUpdateOperationsInput | string
+  teamId?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
 export type IssueLabelCreateManyInput = {
   issueId: string
   labelId: string
   organizationId: string
+  teamId: string
 }
 
 export type IssueLabelUpdateManyMutationInput = {
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
+
 }
 
 export type IssueLabelUncheckedUpdateManyInput = {
   issueId?: Prisma.StringFieldUpdateOperationsInput | string
   labelId?: Prisma.StringFieldUpdateOperationsInput | string
   organizationId?: Prisma.StringFieldUpdateOperationsInput | string
+  teamId?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
 export type IssueLabelListRelationFilter = {
@@ -267,18 +281,21 @@ export type IssueLabelCountOrderByAggregateInput = {
   issueId?: Prisma.SortOrder
   labelId?: Prisma.SortOrder
   organizationId?: Prisma.SortOrder
+  teamId?: Prisma.SortOrder
 }
 
 export type IssueLabelMaxOrderByAggregateInput = {
   issueId?: Prisma.SortOrder
   labelId?: Prisma.SortOrder
   organizationId?: Prisma.SortOrder
+  teamId?: Prisma.SortOrder
 }
 
 export type IssueLabelMinOrderByAggregateInput = {
   issueId?: Prisma.SortOrder
   labelId?: Prisma.SortOrder
   organizationId?: Prisma.SortOrder
+  teamId?: Prisma.SortOrder
 }
 
 export type IssueLabelCreateNestedManyWithoutLabelInput = {
@@ -366,13 +383,11 @@ export type IssueLabelUncheckedUpdateManyWithoutIssueNestedInput = {
 }
 
 export type IssueLabelCreateWithoutLabelInput = {
-  organizationId: string
   issue: Prisma.IssueCreateNestedOneWithoutIssueLabelsInput
 }
 
 export type IssueLabelUncheckedCreateWithoutLabelInput = {
   issueId: string
-  organizationId: string
 }
 
 export type IssueLabelCreateOrConnectWithoutLabelInput = {
@@ -408,16 +423,15 @@ export type IssueLabelScalarWhereInput = {
   issueId?: Prisma.UuidFilter<"IssueLabel"> | string
   labelId?: Prisma.UuidFilter<"IssueLabel"> | string
   organizationId?: Prisma.UuidFilter<"IssueLabel"> | string
+  teamId?: Prisma.UuidFilter<"IssueLabel"> | string
 }
 
 export type IssueLabelCreateWithoutIssueInput = {
-  organizationId: string
   label: Prisma.LabelCreateNestedOneWithoutIssueLabelsInput
 }
 
 export type IssueLabelUncheckedCreateWithoutIssueInput = {
   labelId: string
-  organizationId: string
 }
 
 export type IssueLabelCreateOrConnectWithoutIssueInput = {
@@ -448,42 +462,34 @@ export type IssueLabelUpdateManyWithWhereWithoutIssueInput = {
 
 export type IssueLabelCreateManyLabelInput = {
   issueId: string
-  organizationId: string
 }
 
 export type IssueLabelUpdateWithoutLabelInput = {
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   issue?: Prisma.IssueUpdateOneRequiredWithoutIssueLabelsNestedInput
 }
 
 export type IssueLabelUncheckedUpdateWithoutLabelInput = {
   issueId?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
 export type IssueLabelUncheckedUpdateManyWithoutLabelInput = {
   issueId?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
 export type IssueLabelCreateManyIssueInput = {
   labelId: string
-  organizationId: string
 }
 
 export type IssueLabelUpdateWithoutIssueInput = {
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
   label?: Prisma.LabelUpdateOneRequiredWithoutIssueLabelsNestedInput
 }
 
 export type IssueLabelUncheckedUpdateWithoutIssueInput = {
   labelId?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
 export type IssueLabelUncheckedUpdateManyWithoutIssueInput = {
   labelId?: Prisma.StringFieldUpdateOperationsInput | string
-  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
 
@@ -492,6 +498,7 @@ export type IssueLabelSelect<ExtArgs extends runtime.Types.Extensions.InternalAr
   issueId?: boolean
   labelId?: boolean
   organizationId?: boolean
+  teamId?: boolean
   issue?: boolean | Prisma.IssueDefaultArgs<ExtArgs>
   label?: boolean | Prisma.LabelDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["issueLabel"]>
@@ -500,6 +507,7 @@ export type IssueLabelSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Ex
   issueId?: boolean
   labelId?: boolean
   organizationId?: boolean
+  teamId?: boolean
   issue?: boolean | Prisma.IssueDefaultArgs<ExtArgs>
   label?: boolean | Prisma.LabelDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["issueLabel"]>
@@ -508,6 +516,7 @@ export type IssueLabelSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Ex
   issueId?: boolean
   labelId?: boolean
   organizationId?: boolean
+  teamId?: boolean
   issue?: boolean | Prisma.IssueDefaultArgs<ExtArgs>
   label?: boolean | Prisma.LabelDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["issueLabel"]>
@@ -516,9 +525,10 @@ export type IssueLabelSelectScalar = {
   issueId?: boolean
   labelId?: boolean
   organizationId?: boolean
+  teamId?: boolean
 }
 
-export type IssueLabelOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"issueId" | "labelId" | "organizationId", ExtArgs["result"]["issueLabel"]>
+export type IssueLabelOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"issueId" | "labelId" | "organizationId" | "teamId", ExtArgs["result"]["issueLabel"]>
 export type IssueLabelInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   issue?: boolean | Prisma.IssueDefaultArgs<ExtArgs>
   label?: boolean | Prisma.LabelDefaultArgs<ExtArgs>
@@ -542,6 +552,7 @@ export type $IssueLabelPayload<ExtArgs extends runtime.Types.Extensions.Internal
     issueId: string
     labelId: string
     organizationId: string
+    teamId: string
   }, ExtArgs["result"]["issueLabel"]>
   composites: {}
 }
@@ -970,6 +981,7 @@ export interface IssueLabelFieldRefs {
   readonly issueId: Prisma.FieldRef<"IssueLabel", 'String'>
   readonly labelId: Prisma.FieldRef<"IssueLabel", 'String'>
   readonly organizationId: Prisma.FieldRef<"IssueLabel", 'String'>
+  readonly teamId: Prisma.FieldRef<"IssueLabel", 'String'>
 }
     
 

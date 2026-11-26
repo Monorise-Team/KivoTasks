@@ -883,6 +883,7 @@ export const prismaIssuesStore: IssuesStore = {
             issueId: id,
             labelId,
             organizationId: actor.organizationId,
+            teamId: input.teamId,
           })),
         });
       }
@@ -1015,6 +1016,7 @@ export const prismaIssuesStore: IssuesStore = {
               issueId,
               labelId,
               organizationId: actor.organizationId,
+              teamId: existing.teamId,
             })),
           });
         }

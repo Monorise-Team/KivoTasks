@@ -261,6 +261,7 @@ export type TeamOrderByWithRelationInput = {
 
 export type TeamWhereUniqueInput = Prisma.AtLeast<{
   id?: string
+  organizationId_id?: Prisma.TeamOrganizationIdIdCompoundUniqueInput
   organizationId_key?: Prisma.TeamOrganizationIdKeyCompoundUniqueInput
   AND?: Prisma.TeamWhereInput | Prisma.TeamWhereInput[]
   OR?: Prisma.TeamWhereInput[]
@@ -275,7 +276,7 @@ export type TeamWhereUniqueInput = Prisma.AtLeast<{
   workflowStates?: Prisma.WorkflowStateListRelationFilter
   labels?: Prisma.LabelListRelationFilter
   issues?: Prisma.IssueListRelationFilter
-}, "id" | "organizationId_key">
+}, "id" | "organizationId_id" | "organizationId_key">
 
 export type TeamOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
@@ -394,6 +395,11 @@ export type TeamUncheckedUpdateManyInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   archivedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+}
+
+export type TeamOrganizationIdIdCompoundUniqueInput = {
+  organizationId: string
+  id: string
 }
 
 export type TeamOrganizationIdKeyCompoundUniqueInput = {
