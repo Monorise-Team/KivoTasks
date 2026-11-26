@@ -10,8 +10,8 @@ import { sessionStore } from "./sessions";
 let instance: WebAuth | undefined;
 
 /**
- * Logowanie przez MonoriseCore (ADR-0095): przeglądarka przez BFF z sesją w bazie KivoTasks (ADR-0050),
- * aplikacja na telefon tokenem z Core w nagłówku Authorization. Tworzone przy pierwszym użyciu,
+ * Logowanie przez MonoriseCore (ADR-0103): przeglądarka przez BFF z sesją w bazie KivoTasks (ADR-0050)
+ * oraz obsługa tokenu Bearer z Core w nagłówku Authorization. Tworzone przy pierwszym użyciu,
  * żeby build działał bez sekretów.
  */
 export function getAuth(): WebAuth {
@@ -20,7 +20,7 @@ export function getAuth(): WebAuth {
     clientId: config.oauthClientId,
     clientSecret: config.oauthClientSecret || undefined,
     appUrl: config.appUrl,
-    // Pierwsze API to KivoTasks (tokeny sesji), drugie Core API (dane osoby i firmy, a docelowo uprawnienia).
+    // Pierwsze API to KivoTasks (tokeny sesji), drugie Core API (dane osoby i firmy).
     resources: [config.apiUrl, config.coreApiUrl],
     secret: config.sessionSecrets,
     store: sessionStore,
@@ -34,7 +34,7 @@ export interface Caller extends Actor {
   employeeId: string;
   context: AuthContext;
   session: Session | null;
-  /** Token z nagłówka Authorization, gdy pyta aplikacja na telefon. */
+  /** Token z nagłówka Authorization, gdy żądanie używa uwierzytelnienia Bearer. */
   token: string | null;
 }
 

@@ -52,21 +52,22 @@ export function invalidatePermissionCache(filter?: PermissionCacheFilter): void 
   permissionCache.invalidate(filter);
 }
 
-function assertProductAccess(snapshot: PermissionSnapshot): void {
+export function assertProductAccess(snapshot: PermissionSnapshot): void {
   if (!snapshot.products.includes(KIVOTASKS_PERMISSIONS.product)) {
     throw new ApiFailure(403, "PRODUCT_ACCESS_REQUIRED", PRODUCT_ACCESS_REQUIRED_MESSAGE);
   }
 }
 
 /**
- * Wylicza możliwości widoczne w interfejsie (np. pokazanie zakładki Zespół) na podstawie migawki Core.
+ * Wylicza możliwości widoczne w interfejsie KivoTasks na podstawie migawki uprawnień z Core.
  */
 export function capabilitiesFromSnapshot(snapshot: PermissionSnapshot): Capabilities {
   return {
-    trackOwnTime:
-      can(snapshot, KIVOTASKS_PERMISSIONS.keys["entries.read_own"]) &&
-      can(snapshot, KIVOTASKS_PERMISSIONS.keys["entries.write_own"]),
-    viewTeam: scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["entries.read"]).type !== "NONE",
+    hasProductAccess: snapshot.products.includes(KIVOTASKS_PERMISSIONS.product),
+    readIssues: can(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.read"]),
+    writeIssues: can(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.write"]),
+    manageTeams: can(snapshot, KIVOTASKS_PERMISSIONS.keys["teams.manage"]),
+    manageProjects: can(snapshot, KIVOTASKS_PERMISSIONS.keys["projects.manage"]),
   };
 }
 
@@ -78,10 +79,10 @@ export async function getUserCapabilities(caller: Caller): Promise<Capabilities>
 
 /**
  * Jedyny punkt sprawdzania uprawnień po stronie serwera KivoTasks (ADR-0036).
- * Sprawdza obecność produktu `kivotasks` w migawce oraz wskazane uprawnienie bez celu
- * (np. `kivotasks.entries.read_own` i `kivotasks.entries.write_own` w dowolnym zakresie).
+ * Sprawdza obecność produktu `kivotasks` w migawce (`403 PRODUCT_ACCESS_REQUIRED`)
+ * oraz wskazane uprawnienie (`403 PERMISSION_DENIED`).
  */
-export async function assertTimePermission(
+export async function assertPermission(
   caller: Caller,
   permission: KivotasksPermissionKey,
 ): Promise<PermissionSnapshot> {
@@ -94,15 +95,18 @@ export async function assertTimePermission(
 }
 
 /**
- * Zwraca efektywny zakres uprawnienia `kivotasks.entries.read` dla widoku kierownika (`ORGANIZATION` albo `LIMITED`).
- * Brak produktu daje 403 `PRODUCT_ACCESS_REQUIRED`, a zakres `NONE` daje 403 `PERMISSION_DENIED`.
+ * Zwraca efektywny zakres uprawnienia (`ORGANIZATION` albo `LIMITED`: `unitIds` / `resourceIds`).
+ * Brak produktu daje `403 PRODUCT_ACCESS_REQUIRED`, a zakres `NONE` daje `403 PERMISSION_DENIED`.
  */
-export async function assertTeamReadScope(caller: Caller): Promise<Exclude<AccessScope, { type: "NONE" }>> {
+export async function assertPermissionScope(
+  caller: Caller,
+  permission: KivotasksPermissionKey,
+): Promise<Exclude<AccessScope, { type: "NONE" }>> {
   const snapshot = await getPermissionSnapshot(caller);
   assertProductAccess(snapshot);
-  const scope = scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["entries.read"]);
+  const scope = scopeOf(snapshot, permission);
   if (scope.type === "NONE") {
-    throw new ApiFailure(403, "PERMISSION_DENIED", "Brak uprawnienia do podglądu czasu pracy zespołu");
+    throw new ApiFailure(403, "PERMISSION_DENIED", "Brak uprawnienia do tej operacji");
   }
   return scope;
 }

@@ -5,7 +5,7 @@ import "../globals.css";
 
 export const metadata: Metadata = {
   title: "KivoTasks",
-  description: "Ewidencja czasu pracy KivoTasks w przeglądarce.",
+  description: "Zadania i projekty KivoTasks w przeglądarce.",
   robots: { index: false, follow: false },
 };
 

@@ -32,14 +32,14 @@ describe("rejestracja uprawnień i gotowych ról w MonoriseCore", () => {
   it("pobiera token maszynowy, rejestruje manifest uprawnień, a potem gotowe role w tej kolejności", async () => {
     const calls: { url: string; method: string; headers: Headers; body: string }[] = [];
     const permissionsSummary = {
-      added: ["kivotasks.entries.read_own"],
+      added: ["kivotasks.issues.read"],
       updated: [],
       deprecated: [],
       restored: [],
-      unchanged: 5,
+      unchanged: 3,
     };
     const roleTemplatesSummary = {
-      added: ["kivotasks.employee", "kivotasks.manager"],
+      added: ["kivotasks.member", "kivotasks.admin", "kivotasks.guest"],
       updated: [],
       archived: [],
       restored: [],
@@ -106,8 +106,8 @@ describe("rejestracja uprawnień i gotowych ról w MonoriseCore", () => {
     const lines = events.map(formatRegistrationStep);
     expect(lines).toEqual([
       "1/3 Token maszynowy pobrany dla klienta kivotasks-web.",
-      "2/3 Uprawnienia (kivotasks): dodano 1 (kivotasks.entries.read_own), zaktualizowano 0, wycofano 0, przywrócono 0, bez zmian 5.",
-      "3/3 Gotowe role (kivotasks): dodano 2 (kivotasks.employee, kivotasks.manager), zaktualizowano 0, zarchiwizowano 0, przywrócono 0, bez zmian 0.",
+      "2/3 Uprawnienia (kivotasks): dodano 1 (kivotasks.issues.read), zaktualizowano 0, wycofano 0, przywrócono 0, bez zmian 3.",
+      "3/3 Gotowe role (kivotasks): dodano 3 (kivotasks.member, kivotasks.admin, kivotasks.guest), zaktualizowano 0, zarchiwizowano 0, przywrócono 0, bez zmian 0.",
     ]);
     for (const line of lines) {
       expect(line).not.toContain(BASE_CONFIG.clientSecret);
@@ -145,7 +145,7 @@ describe("rejestracja uprawnień i gotowych ról w MonoriseCore", () => {
       .mockResolvedValueOnce(jsonResponse({ access_token: "token-maszynowy-test", expires_in: 300 }))
       .mockResolvedValueOnce(
         jsonResponse({
-          data: { added: [], updated: [], deprecated: [], restored: [], unchanged: 6 },
+          data: { added: [], updated: [], deprecated: [], restored: [], unchanged: 4 },
           meta: { requestId: "req_perm" },
           error: null,
         }),
@@ -287,7 +287,7 @@ describe("rejestracja uprawnień i gotowych ról w MonoriseCore", () => {
     const first = await registerWithCore({ ...BASE_CONFIG, fetch: fakeCore.fetch });
     expect(first.permissions.added).toHaveLength(KIVOTASKS_PERMISSION_MANIFEST.length);
     expect(first.permissions.unchanged).toBe(0);
-    expect(first.roleTemplates.added).toEqual(["kivotasks.employee", "kivotasks.manager"]);
+    expect(first.roleTemplates.added).toEqual(["kivotasks.admin", "kivotasks.guest", "kivotasks.member"]);
     expect(fakeCore.registrations.permissions).toHaveLength(1);
     expect(fakeCore.registrations.roleTemplates).toHaveLength(1);
 

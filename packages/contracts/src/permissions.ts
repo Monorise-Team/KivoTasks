@@ -1,16 +1,15 @@
 import { definePermissions, type PermissionKeyOf } from "@monorise-team/permissions";
 
 /**
- * Uprawnienia KivoTasks deklarowane w kodzie produktu (ADR-0036, karta produktu KivoTasks).
+ * Uprawnienia KivoTasks deklarowane w kodzie produktu (ADR-0036, ADR-0103, karta produktu KivoTasks).
  * Manifest i gotowe role są rejestrowane w MonoriseCore poleceniem `pnpm permissions:register`.
+ * Zespół w KivoTasks odpowiada jednostce organizacyjnej Core (zakres `UNIT` lub `ORGANIZATION`).
  */
 export const KIVOTASKS_PERMISSIONS = definePermissions("kivotasks", {
-  "entries.read_own": "Odczyt własnych wpisów czasu pracy",
-  "entries.write_own": "Rejestracja własnego czasu pracy",
-  "entries.read": "Podgląd wpisów czasu pracy pracowników w zakresie uprawnień",
-  "entries.approve": "Zatwierdzanie i odrzucanie poprawek wpisów czasu pracy",
-  "leave.approve": "Zatwierdzanie i odrzucanie wniosków urlopowych",
-  "reports.export": "Eksport raportów czasu pracy",
+  "issues.read": "Podgląd zadań w dostępnych zespołach i projektach",
+  "issues.write": "Tworzenie i edycja zadań w dostępnych zespołach",
+  "teams.manage": "Ustawienia zespołów: klucze, statusy i etykiety",
+  "projects.manage": "Tworzenie i zarządzanie projektami",
 });
 
 export const KIVOTASKS_PERMISSION_MANIFEST = KIVOTASKS_PERMISSIONS.manifest;
@@ -29,22 +28,26 @@ export interface KivotasksRoleTemplate {
  */
 export const KIVOTASKS_ROLE_TEMPLATES = [
   {
-    key: "kivotasks.employee",
-    name: "Pracownik",
-    description: "Rejestruje i przegląda własny czas pracy",
-    permissions: [KIVOTASKS_PERMISSIONS.keys["entries.read_own"], KIVOTASKS_PERMISSIONS.keys["entries.write_own"]],
+    key: "kivotasks.member",
+    name: "Członek KivoTasks",
+    description: "Przegląda, tworzy i edytuje zadania we własnych zespołach",
+    permissions: [KIVOTASKS_PERMISSIONS.keys["issues.read"], KIVOTASKS_PERMISSIONS.keys["issues.write"]],
   },
   {
-    key: "kivotasks.manager",
-    name: "Kierownik",
-    description: "Przegląda i zatwierdza czas pracy, urlopy i raporty zespołu w swoim zakresie",
+    key: "kivotasks.admin",
+    name: "Administrator KivoTasks",
+    description: "Zarządza zespołami, obiegami statusów, etykietami, projektami oraz zadaniami",
     permissions: [
-      KIVOTASKS_PERMISSIONS.keys["entries.read_own"],
-      KIVOTASKS_PERMISSIONS.keys["entries.write_own"],
-      KIVOTASKS_PERMISSIONS.keys["entries.read"],
-      KIVOTASKS_PERMISSIONS.keys["entries.approve"],
-      KIVOTASKS_PERMISSIONS.keys["leave.approve"],
-      KIVOTASKS_PERMISSIONS.keys["reports.export"],
+      KIVOTASKS_PERMISSIONS.keys["issues.read"],
+      KIVOTASKS_PERMISSIONS.keys["issues.write"],
+      KIVOTASKS_PERMISSIONS.keys["teams.manage"],
+      KIVOTASKS_PERMISSIONS.keys["projects.manage"],
     ],
+  },
+  {
+    key: "kivotasks.guest",
+    name: "Gość",
+    description: "Przegląda zadania w udostępnionych projektach",
+    permissions: [KIVOTASKS_PERMISSIONS.keys["issues.read"]],
   },
 ] as const satisfies readonly KivotasksRoleTemplate[];

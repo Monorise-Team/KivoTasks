@@ -2,10 +2,11 @@
  * Testy odporności serwera KivoTasks na krótkie awarie MonoriseCore (ponawianie w `@monorise-team/sdk`,
  * bezpieczna odmowa 503 po wyczerpaniu prób) oraz wielostronicowego katalogu Core (`directoryPageSize`).
  *
- * Testy działają na prawdziwych trasach Next.js (`/api/v1/me`, `/api/v1/team/current`, `/api/v1/team/entries`)
- * z atrapą `createFakeCore` podpiętą pod `globalThis.fetch`, bez bazy PostgreSQL i bez gniazd TCP.
+ * Testy działają na trasie `/api/v1/me` oraz kliencie maszynowym `getMachineCoreClient()` z atrapą
+ * `createFakeCore` podpiętą pod `globalThis.fetch`, bez bazy PostgreSQL i bez gniazd TCP.
  */
 import type { Authenticated, Session } from "@monorise-team/auth/next";
+import { paginate } from "@monorise-team/sdk";
 import {
   checkErrorEnvelope,
   createFakeCore,
@@ -14,21 +15,22 @@ import {
   type FakeOrganizationBuilder,
 } from "@monorise-team/testing";
 import { KIVOTASKS_PERMISSIONS } from "@kivotasks/contracts";
-import * as dbModule from "@kivotasks/db";
 import { NextRequest } from "next/server";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as me from "@/app/api/v1/me/route";
-import * as teamCurrent from "@/app/api/v1/team/current/route";
-import * as teamEntries from "@/app/api/v1/team/entries/route";
 import { getAuth } from "@/server/auth";
-import { DEFAULT_CORE_RETRY, resetMachineCoreTokenCache, setCoreRetryForTests } from "@/server/core";
+import {
+  DEFAULT_CORE_RETRY,
+  getMachineCoreClient,
+  resetMachineCoreTokenCache,
+  setCoreRetryForTests,
+} from "@/server/core";
 import {
   CORE_DIRECTORY_READ_SCOPE,
   CORE_EVENTS_READ_SCOPE,
   CORE_PERMISSIONS_READ_SCOPE,
   CORE_PERMISSIONS_REGISTER_SCOPE,
 } from "@/server/core-machine";
-import * as serverDb from "@/server/db";
 import { invalidatePermissionCache } from "@/server/permissions";
 
 const API = "http://kivo.localhost:3500";
@@ -47,41 +49,6 @@ function call(
   if (init.token) headers.authorization = `Bearer ${init.token}`;
   const request = new NextRequest(`${BASE}${path}`, { method: "GET", headers });
   return handler(request, { params: Promise.resolve({}) });
-}
-
-function makeDbRow(
-  organizationId: string,
-  accountId: string,
-  employeeId: string,
-  endedAt: Date | null = null,
-): dbModule.TimeEntryModel {
-  const startedAt = new Date("2026-11-24T08:00:00.000Z");
-  return {
-    id: dbModule.uuidv7(),
-    organizationId,
-    accountId,
-    employeeId,
-    kind: "WORK",
-    startedAt,
-    endedAt,
-    note: null,
-    createdAt: startedAt,
-    updatedAt: startedAt,
-  };
-}
-
-function mockTeamDb(allRows: dbModule.TimeEntryModel[]) {
-  vi.spyOn(serverDb, "getDb").mockReturnValue({} as dbModule.PrismaClient);
-  vi.spyOn(dbModule, "withTeamScope").mockImplementation(async (_db, _actor, scope, fn) => {
-    const visible =
-      scope.type === "ALL" ? allRows : allRows.filter((row) => scope.employeeIds.includes(row.employeeId));
-    const fakeTx = {
-      timeEntry: {
-        findMany: async () => visible,
-      },
-    } as unknown as dbModule.Tx;
-    return fn(fakeTx);
-  });
 }
 
 function mockBrowserSession(
@@ -115,36 +82,30 @@ function mockBrowserSession(
 let fakeCore: FakeCore;
 let acme: FakeOrganizationBuilder;
 let anna: CreatedEmployeeWithAccount;
-let unitKrakowId: string;
-let employeeRoleId: string;
-let managerReadRoleId: string;
+let unitMagazynId: string;
+let memberRoleId: string;
 
 function setupDefaultAcme(): void {
   acme = fakeCore.organization({ name: "Acme", domain: "acme.test" });
   acme.grantEntitlement("kivotasks");
 
-  const krakow = acme.addUnit({ name: "Oddział Kraków", type: "BRANCH" });
-  unitKrakowId = krakow.id;
+  const magazyn = acme.addUnit({ name: "Magazyn", type: "TEAM" });
+  unitMagazynId = magazyn.id;
 
-  employeeRoleId = acme.addRole({
-    name: "Pracownik",
+  memberRoleId = acme.addRole({
+    name: "Członek KivoTasks",
     product: "kivotasks",
-    permissions: [KIVOTASKS_PERMISSIONS.keys["entries.read_own"], KIVOTASKS_PERMISSIONS.keys["entries.write_own"]],
-  }).id;
-  managerReadRoleId = acme.addRole({
-    name: "Kierownik",
-    product: "kivotasks",
-    permissions: [KIVOTASKS_PERMISSIONS.keys["entries.read"]],
+    permissions: [KIVOTASKS_PERMISSIONS.keys["issues.read"], KIVOTASKS_PERMISSIONS.keys["issues.write"]],
   }).id;
 
   anna = acme.addEmployee({
     firstName: "Anna",
     lastName: "Nowak",
     email: "anna@acme.test",
-    unitIds: [unitKrakowId],
+    unitIds: [unitMagazynId],
     products: ["kivotasks"],
   });
-  acme.assignRole({ accountId: anna.accountId, roleId: employeeRoleId, scope: { type: "ORGANIZATION" } });
+  acme.assignRole({ accountId: anna.accountId, roleId: memberRoleId, scope: { type: "ORGANIZATION" } });
 }
 
 beforeAll(async () => {
@@ -207,37 +168,43 @@ describe("odporność serwera KivoTasks na krótkie awarie MonoriseCore", () => 
     const response = await call(me.GET, "/me");
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
-      data: { employee: { firstName: string }; capabilities: { trackOwnTime: boolean; viewTeam: boolean } };
+      data: {
+        employee: { firstName: string };
+        capabilities: {
+          hasProductAccess: boolean;
+          readIssues: boolean;
+          writeIssues: boolean;
+          manageTeams: boolean;
+          manageProjects: boolean;
+        };
+      };
       error: null;
     };
     expect(body.error).toBeNull();
     expect(body.data.employee.firstName).toBe("Anna");
-    expect(body.data.capabilities).toEqual({ trackOwnTime: true, viewTeam: false });
+    expect(body.data.capabilities).toEqual({
+      hasProductAccess: true,
+      readIssues: true,
+      writeIssues: true,
+      manageTeams: false,
+      manageProjects: false,
+    });
     expect(fakeCore.calls("permissionSnapshot")).toBe(2);
   });
 
-  it("ponawia pojedynczy błąd sieci na directoryUnitMembers w widoku zespołu", async () => {
-    const jan = acme.addEmployee({ firstName: "Jan", lastName: "Kowalski", products: ["kivotasks"] });
-    acme.assignRole({
-      accountId: jan.accountId,
-      roleId: managerReadRoleId,
-      scope: { type: "UNIT", unitId: unitKrakowId },
-    });
-    const janToken = await acme.signUserToken(jan.accountId, { audience: API });
-
-    mockTeamDb([makeDbRow(acme.id, anna.accountId, anna.employeeId, null)]);
+  it("ponawia pojedynczy błąd sieci na directoryUnitMembers w kliencie maszynowym Core", async () => {
     fakeCore.failNext("directoryUnitMembers", { networkError: true });
 
-    const response = await call(teamCurrent.GET, "/team/current", { token: janToken });
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as {
-      data: { entries: { employee: { id: string; firstName: string; lastName: string } }[] };
-      error: null;
-    };
-    expect(body.error).toBeNull();
-    expect(body.data.entries.map((entry) => entry.employee)).toEqual([
-      { id: anna.employeeId, firstName: "Anna", lastName: "Nowak" },
-    ]);
+    const core = getMachineCoreClient();
+    const memberIds: string[] = [];
+    for await (const member of paginate(core.listProductDirectoryUnitMembers, {
+      path: { productKey: KIVOTASKS_PERMISSIONS.product },
+      query: { organizationId: acme.id, unitId: [unitMagazynId], limit: 100 },
+    })) {
+      memberIds.push(member.employeeId);
+    }
+
+    expect(memberIds).toEqual([anna.employeeId]);
     expect(fakeCore.calls("directoryUnitMembers")).toBe(2);
   });
 
@@ -308,45 +275,28 @@ describe("odporność serwera KivoTasks na krótkie awarie MonoriseCore", () => 
     expect(fakeCore.calls("permissionSnapshot")).toBe(1 + FAST_RETRY.attempts);
   });
 
-  it("pobiera wszystkich pracowników w widoku zespołu przy stronicowaniu katalogu directoryPageSize: 2", async () => {
+  it("pobiera wszystkie strony katalogu Core przez paginate przy directoryPageSize: 2", async () => {
     fakeCore.setDirectoryPageSize(2);
-
-    const jan = acme.addEmployee({ firstName: "Jan", lastName: "Kierownik", products: ["kivotasks"] });
-    acme.assignRole({
-      accountId: jan.accountId,
-      roleId: managerReadRoleId,
-      scope: { type: "UNIT", unitId: unitKrakowId },
-    });
-    const janToken = await acme.signUserToken(jan.accountId, { audience: API });
 
     const teamMembers = [
       anna,
-      acme.addEmployee({ firstName: "Bartek", lastName: "Bąk", unitIds: [unitKrakowId], products: ["kivotasks"] }),
-      acme.addEmployee({ firstName: "Celina", lastName: "Cicha", unitIds: [unitKrakowId], products: ["kivotasks"] }),
-      acme.addEmployee({ firstName: "Damian", lastName: "Dąb", unitIds: [unitKrakowId], products: ["kivotasks"] }),
-      acme.addEmployee({ firstName: "Ewa", lastName: "Eska", unitIds: [unitKrakowId], products: ["kivotasks"] }),
+      acme.addEmployee({ firstName: "Bartek", lastName: "Bąk", unitIds: [unitMagazynId], products: ["kivotasks"] }),
+      acme.addEmployee({ firstName: "Celina", lastName: "Cicha", unitIds: [unitMagazynId], products: ["kivotasks"] }),
+      acme.addEmployee({ firstName: "Damian", lastName: "Dąb", unitIds: [unitMagazynId], products: ["kivotasks"] }),
+      acme.addEmployee({ firstName: "Ewa", lastName: "Eska", unitIds: [unitMagazynId], products: ["kivotasks"] }),
     ];
 
-    const rows = teamMembers.map((member) => makeDbRow(acme.id, member.accountId, member.employeeId, null));
-    mockTeamDb(rows);
+    const core = getMachineCoreClient();
+    const memberIds: string[] = [];
+    for await (const member of paginate(core.listProductDirectoryUnitMembers, {
+      path: { productKey: KIVOTASKS_PERMISSIONS.product },
+      query: { organizationId: acme.id, unitId: [unitMagazynId], limit: 100 },
+    })) {
+      memberIds.push(member.employeeId);
+    }
 
-    const response = await call(teamEntries.GET, "/team/entries?from=2026-11-24&to=2026-11-24", { token: janToken });
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as {
-      data: { entries: { employee: { id: string; firstName: string; lastName: string } }[] };
-      error: null;
-    };
-    expect(body.error).toBeNull();
-    expect(body.data.entries).toHaveLength(5);
-    expect(body.data.entries.map((entry) => entry.employee)).toEqual(
-      teamMembers.map((member) => ({
-        id: member.employeeId,
-        firstName: member.firstName,
-        lastName: member.lastName,
-      })),
-    );
-    // 5 pracowników przy rozmiarze strony 2 wymaga co najmniej 3 stron z obu endpointów katalogu
+    expect(memberIds).toHaveLength(5);
+    expect(memberIds.sort()).toEqual(teamMembers.map((member) => member.employeeId).sort());
     expect(fakeCore.calls("directoryUnitMembers")).toBe(3);
-    expect(fakeCore.calls("directoryEmployees")).toBe(3);
   });
 });

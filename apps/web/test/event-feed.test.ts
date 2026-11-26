@@ -170,31 +170,31 @@ describe("odbiór zdarzeń z kanału Core (event-feed)", () => {
 
     const acme = fakeCore.organization({ name: "Acme", domain: "acme.test" });
     acme.grantEntitlement("kivotasks");
-    const employeeRole = acme.addRole({
-      name: "Pracownik",
+    const memberRole = acme.addRole({
+      name: "Członek KivoTasks",
       product: "kivotasks",
-      permissions: [KIVOTASKS_PERMISSIONS.keys["entries.read_own"], KIVOTASKS_PERMISSIONS.keys["entries.write_own"]],
+      permissions: [KIVOTASKS_PERMISSIONS.keys["issues.read"], KIVOTASKS_PERMISSIONS.keys["issues.write"]],
     });
 
     const anna = acme.addEmployee({ firstName: "Anna", lastName: "Nowak", products: [] });
     const piotr = acme.addEmployee({ firstName: "Piotr", lastName: "Zieliński", products: ["kivotasks"] });
-    acme.assignRole({ accountId: piotr.accountId, roleId: employeeRole.id, scope: { type: "ORGANIZATION" } });
+    acme.assignRole({ accountId: piotr.accountId, roleId: memberRole.id, scope: { type: "ORGANIZATION" } });
 
     const annaCaller = makeCaller(acme.id, anna.accountId, anna.employeeId, 0);
     const piotrCaller = makeCaller(acme.id, piotr.accountId, piotr.employeeId, 0);
 
     // 1. Zapisujemy migawki obu osób w pamięci podręcznej
     await expect(
-      permissionsModule.assertTimePermission(annaCaller, KIVOTASKS_PERMISSIONS.keys["entries.read_own"]),
+      permissionsModule.assertPermission(annaCaller, KIVOTASKS_PERMISSIONS.keys["issues.read"]),
     ).rejects.toMatchObject({ status: 403, code: "PRODUCT_ACCESS_REQUIRED" });
     await expect(
-      permissionsModule.assertTimePermission(piotrCaller, KIVOTASKS_PERMISSIONS.keys["entries.read_own"]),
+      permissionsModule.assertPermission(piotrCaller, KIVOTASKS_PERMISSIONS.keys["issues.read"]),
     ).resolves.toBeDefined();
     expect(fakeCore.calls.permissionSnapshot).toBe(2);
 
     // 2. W Core Anna dostaje dostęp i rolę, a do KivoTasks trafia zdarzenie zmiany uprawnień Anny
     acme.grantAppAccess(anna.accountId, "kivotasks");
-    acme.assignRole({ accountId: anna.accountId, roleId: employeeRole.id, scope: { type: "ORGANIZATION" } });
+    acme.assignRole({ accountId: anna.accountId, roleId: memberRole.id, scope: { type: "ORGANIZATION" } });
     const nextRev = acme.bumpAuthzRevision(anna.accountId);
 
     const db = createFakeEventDb();
@@ -221,12 +221,12 @@ describe("odbiór zdarzeń z kanału Core (event-feed)", () => {
     // 3. Nawet ze starym tokenem (authz_rev = 0) kolejne wywołanie dla Anny pobiera świeżą migawkę z Core,
     //    natomiast migawka Piotra nadal pochodzi z pamięci podręcznej.
     await expect(
-      permissionsModule.assertTimePermission(annaCaller, KIVOTASKS_PERMISSIONS.keys["entries.read_own"]),
+      permissionsModule.assertPermission(annaCaller, KIVOTASKS_PERMISSIONS.keys["issues.read"]),
     ).resolves.toBeDefined();
     expect(fakeCore.calls.permissionSnapshot).toBe(3);
 
     await expect(
-      permissionsModule.assertTimePermission(piotrCaller, KIVOTASKS_PERMISSIONS.keys["entries.read_own"]),
+      permissionsModule.assertPermission(piotrCaller, KIVOTASKS_PERMISSIONS.keys["issues.read"]),
     ).resolves.toBeDefined();
     expect(fakeCore.calls.permissionSnapshot).toBe(3);
   });

@@ -8,7 +8,7 @@ const ALLOWED_ORIGINS = new Set(
     .filter(Boolean),
 );
 
-/** Rozpoznaje adres (time. albo kivotasks.) i odpowiada na zapytania wstępne CORS. */
+/** Rozpoznaje adres (kivo. albo kivotasks.) i odpowiada na zapytania wstępne CORS. */
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (pathname.startsWith("/api/")) {

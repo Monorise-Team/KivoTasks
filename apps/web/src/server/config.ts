@@ -25,7 +25,7 @@ export const config = {
     return list(process.env.KIVOTASKS_ALLOWED_ORIGINS);
   },
 
-  // ── Logowanie przez MonoriseCore (ADR-0095) ────────────────────────────────────────────────────────
+  // ── Logowanie przez MonoriseCore (ADR-0103) ────────────────────────────────────────────────────────
   /** Serwer logowania Core (wystawca tokenów), np. https://auth.monorise.studio. */
   get coreAuthUrl() {
     return process.env.CORE_AUTH_URL ?? "http://localhost:3100";

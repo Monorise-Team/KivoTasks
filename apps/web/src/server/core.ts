@@ -37,7 +37,7 @@ export function setCoreRetryForTests(retry: CoreRetryOption = DEFAULT_CORE_RETRY
 /**
  * Klient Core API po stronie serwera z tokenem zalogowanej osoby (`@monorise-team/sdk`).
  * Działa wyłącznie z sesją BFF przeglądarki, bo tylko ona ma token odświeżania pozwalający pobrać
- * token dla odbiorcy Core API (token bearer z telefonu ma odbiorcę API KivoTasks).
+ * token dla odbiorcy Core API (token Bearer wysłany do KivoTasks ma odbiorcę API KivoTasks).
  */
 export function createUserCoreClient(session: Session): CoreClient {
   return createCoreClient({
@@ -74,7 +74,7 @@ export async function getCurrentProfile(caller: Caller): Promise<Omit<Me, "capab
     throw new ApiFailure(
       403,
       "PERMISSION_DENIED",
-      "Aplikacja na telefon pobiera dane osoby i firmy bezpośrednio z Core API",
+      "Trasa /api/v1/me wymaga sesji przeglądarki (BFF). Klienci z tokenem Bearer pobierają profil bezpośrednio z Core API.",
     );
   }
   const core = createUserCoreClient(caller.session);

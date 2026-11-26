@@ -17,19 +17,9 @@ import {
   ErrorCode,
   Health,
   Me,
-  StartTimeEntryInput,
-  StopTimeEntryInput,
-  TeamCurrentList,
-  TeamEmployee,
-  TeamTimeEntriesList,
-  TeamTimeEntry,
-  TimeEntriesList,
-  TimeEntry,
-  TimeEntryKind,
 } from "@kivotasks/contracts";
 import { z } from "zod";
 import {
-  CurrentTimeEntry,
   ROUTE_LIST,
   TAGS,
   type ErrorStatus,
@@ -44,7 +34,7 @@ const ERROR_STATUS_SUMMARY: Record<ErrorStatus, string> = {
   401: "Brak albo nieważny token dostępu albo wygasła sesja",
   403: "Brak dostępu do produktu albo brak uprawnienia",
   404: "Nie znaleziono zasobu",
-  409: "Konflikt stanu wpisu czasu pracy",
+  409: "Konflikt stanu zasobu",
   422: "Błędne dane wejściowe",
   429: "Przekroczony limit zapytań",
   500: "Wewnętrzny błąd serwera",
@@ -162,16 +152,6 @@ function buildSchemaRegistry(routes: readonly RouteDefinition[]) {
   register("Health", Health);
   register("Capabilities", Capabilities);
   register("Me", Me);
-  register("TimeEntryKind", TimeEntryKind);
-  register("TimeEntry", TimeEntry);
-  register("CurrentTimeEntry", CurrentTimeEntry);
-  register("StartTimeEntryInput", StartTimeEntryInput);
-  register("StopTimeEntryInput", StopTimeEntryInput);
-  register("TimeEntriesList", TimeEntriesList);
-  register("TeamEmployee", TeamEmployee);
-  register("TeamTimeEntry", TeamTimeEntry);
-  register("TeamCurrentList", TeamCurrentList);
-  register("TeamTimeEntriesList", TeamTimeEntriesList);
 
   const responseEnvelopes = new Map<string, z.ZodType>();
   for (const route of routes) {
@@ -192,7 +172,7 @@ function buildSchemaRegistry(routes: readonly RouteDefinition[]) {
 }
 
 function buildComponentSchemas(registry: ReturnType<typeof buildSchemaRegistry>["registry"]) {
-  // `io: "input"` pozwala wygenerować JSON Schema także dla schematów wejściowych z `.transform()` (np. przycinanie notatki).
+  // `io: "input"` pozwala wygenerować JSON Schema także dla schematów wejściowych z `.transform()`.
   const generated = z.toJSONSchema(registry, {
     target: "draft-2020-12",
     io: "input",
@@ -347,13 +327,11 @@ export function buildOpenApiDocument(): OpenApiSpec {
     info: {
       title: "KivoTasks API",
       version: readRootVersion(),
-      summary: "API ewidencji czasu pracy KivoTasks: rejestracja własnego czasu pracy, widok zespołu i stan usługi.",
+      summary: "API produktu KivoTasks (zadania i projekty Monorise): stan usługi oraz sesja przeglądarki.",
       description:
         "Opis API KivoTasks (`/api/v1/*`) wygenerowany automatycznie z kodu (katalog ścieżek i schematy Zod). " +
         "Wszystkie odpowiedzi ustawiają nagłówek `Cache-Control: no-store` i używają koperty `{ data, meta, error }` " +
-        "(ADR-0044). Tożsamość osoby i firmy zawsze wynika z tokenu albo sesji MonoriseCore (ADR-0037). " +
-        "Trasy `entries` są zapytaniami zakresowymi po przedziale dat [from, to] (maksymalnie 31 dni) i nie używają " +
-        "stronicowania kursorowego.",
+        "(ADR-0044). Tożsamość osoby i firmy zawsze wynika z tokenu albo sesji MonoriseCore (ADR-0037).",
       license: {
         name: "Proprietary, all rights reserved",
         identifier: "LicenseRef-Proprietary",
@@ -375,7 +353,7 @@ export function buildOpenApiDocument(): OpenApiSpec {
           scheme: "bearer",
           bearerFormat: "JWT",
           description:
-            "Token dostępu użytkownika JWT (EdDSA) z auth.monorise.studio z odbiorcą API KivoTasks (aplikacja mobilna, ADR-0023).",
+            "Token dostępu użytkownika JWT (EdDSA) z auth.monorise.studio z odbiorcą API KivoTasks (ADR-0023).",
         },
         sessionCookie: {
           type: "apiKey",

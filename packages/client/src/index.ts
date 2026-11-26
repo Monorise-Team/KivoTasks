@@ -1,21 +1,8 @@
 /**
- * Typowany klient API KivoTasks dla przeglądarki i telefonu (Expo). Przeglądarka używa
- * ciasteczka sesji (BFF, ADR-0050), aplikacja na telefon tokenu z systemowego sejfu (`getToken`).
+ * Typowany klient API KivoTasks dla przeglądarki (sesja BFF w ciasteczku HttpOnly, ADR-0050)
+ * oraz wywołań z tokenem Bearer (`getToken`).
  */
-import {
-  API_PREFIX,
-  type ApiErrorBody,
-  type ApiResponse,
-  type ErrorCode,
-  type Me,
-  type StartTimeEntryInput,
-  type StopTimeEntryInput,
-  type TeamCurrentList,
-  type TeamTimeEntriesList,
-  type TimeEntriesList,
-  type TimeEntriesQuery,
-  type TimeEntry,
-} from "@kivotasks/contracts";
+import { API_PREFIX, type ApiErrorBody, type ApiResponse, type ErrorCode, type Me } from "@kivotasks/contracts";
 
 export class ApiError extends Error {
   readonly code: ErrorCode;
@@ -34,7 +21,7 @@ export class ApiError extends Error {
 export interface ClientOptions {
   /** Adres serwera, np. `https://kivo.monorise.studio`; pusty w przeglądarce (ten sam adres). */
   baseUrl?: string;
-  /** Token aplikacji na telefon; przeglądarka go nie ma (ciasteczko). */
+  /** Opcjonalny token Bearer; przeglądarka go nie używa (korzysta z ciasteczka sesji BFF). */
   getToken?: () => string | null | Promise<string | null>;
   fetch?: typeof fetch;
 }
@@ -83,54 +70,7 @@ export function createClient({ baseUrl = "", getToken, fetch: fetchImpl = fetch 
         });
       },
     },
-    time: {
-      current: () => request<TimeEntry | null>("GET", "/time/current"),
-      start: (input: StartTimeEntryInput) => request<TimeEntry>("POST", "/time/start", input),
-      stop: (input?: StopTimeEntryInput) => request<TimeEntry>("POST", "/time/stop", input ?? {}),
-      entries: (range?: TimeEntriesQuery) => {
-        const params = new URLSearchParams();
-        if (range?.from) params.set("from", range.from);
-        if (range?.to) params.set("to", range.to);
-        const query = params.toString();
-        return request<TimeEntriesList>("GET", `/time/entries${query ? `?${query}` : ""}`);
-      },
-    },
-    team: {
-      current: () => request<TeamCurrentList>("GET", "/team/current"),
-      entries: (range?: TimeEntriesQuery) => {
-        const params = new URLSearchParams();
-        if (range?.from) params.set("from", range.from);
-        if (range?.to) params.set("to", range.to);
-        const query = params.toString();
-        return request<TeamTimeEntriesList>("GET", `/team/entries${query ? `?${query}` : ""}`);
-      },
-    },
   };
 }
 
-export {
-  TIME_ENTRY_KIND_LABELS,
-  TIME_ENTRY_KINDS,
-  type Capabilities,
-  type Me,
-  type StartTimeEntryInput,
-  type StopTimeEntryInput,
-  type TeamCurrentList,
-  type TeamEmployee,
-  type TeamTimeEntriesList,
-  type TeamTimeEntry,
-  type TimeEntriesList,
-  type TimeEntriesQuery,
-  type TimeEntry,
-  type TimeEntryKind,
-} from "@kivotasks/contracts";
-
-export {
-  createAppSession,
-  SessionExpiredError,
-  type AppSession,
-  type AppTokens,
-  type SignInProvider,
-  type StoredAccessToken,
-  type TokenStore,
-} from "./session.js";
+export { type Capabilities, type Me } from "@kivotasks/contracts";

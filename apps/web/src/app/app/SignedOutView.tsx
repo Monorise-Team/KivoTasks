@@ -2,7 +2,7 @@
 
 import type { Me } from "@kivotasks/client";
 import { AppBackdrop, Banner, Button, Card, Skeleton } from "@monorise-team/ui";
-import { Clock, LogOut, RefreshCw } from "lucide-react";
+import { ListTodo, LogOut, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
 
 function CenteredCardLayout({ children }: { children: ReactNode }) {
@@ -12,7 +12,7 @@ function CenteredCardLayout({ children }: { children: ReactNode }) {
       <main className="flex min-h-dvh items-center justify-center p-6">
         <Card surface="float" className="mr-enter flex w-full max-w-md flex-col gap-4 p-8">
           <div className="flex items-center gap-2 text-sm font-semibold tracking-wide text-text-secondary uppercase">
-            <Clock className="size-4 text-accent" aria-hidden />
+            <ListTodo className="size-4 text-accent" aria-hidden />
             KivoTasks
           </div>
           {children}
@@ -42,7 +42,8 @@ export function SignedOutView({ authError }: { authError: string | null }) {
     <CenteredCardLayout>
       <h1 className="font-display text-2xl font-semibold">Zaloguj się do KivoTasks</h1>
       <p className="text-sm leading-relaxed text-text-secondary">
-        Rejestracja czasu pracy korzysta z konta Monorise. Po zalogowaniu zobaczysz swój bieżący status i listę wpisów.
+        Zarządzanie zadaniami i projektami korzysta z konta Monorise. Po zalogowaniu przejdziesz do swoich zadań i
+        zespołów.
       </p>
       {authError ? <Banner tone="danger" message={authError} /> : null}
       <Button asChild variant="primary" size="lg" className="w-full">
@@ -65,7 +66,7 @@ export function LoadErrorView({ error, onRetry }: { error: string | null; onRetr
   );
 }
 
-/** Stan zalogowanej osoby bez dostępu do produktu ani widoku zespołu. */
+/** Stan zalogowanej osoby bez dostępu do produktu albo bez przypisanej roli w KivoTasks. */
 export function NoAccessView({
   me,
   message,

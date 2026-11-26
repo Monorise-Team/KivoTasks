@@ -1,11 +1,10 @@
 /**
- * Testy uprawnień z migawki Core, odświeżania cache po `authz_rev` oraz logiki widoku zespołu
- * (zakresy UNIT/ORGANIZATION/NONE/RESOURCE, stronicowanie i dzielenie na paczki po 100) bez bazy PostgreSQL
- * i bez gniazd TCP (atrapa `createFakeCore` z `@monorise-team/testing` podpięta pod `globalThis.fetch`).
+ * Testy uprawnień KivoTasks z migawki Core, ról (Członek KivoTasks, Administrator KivoTasks, Gość, Owner),
+ * zakresów (ORGANIZATION, UNIT z poddrzewem, RESOURCE) oraz odświeżania pamięci podręcznej po `authz_rev`
+ * bez bazy PostgreSQL i bez gniazd TCP (atrapa `createFakeCore` podpięta pod `globalThis.fetch`).
  */
 import { createFakeCore, type FakeCore, type FakeOrganizationBuilder } from "@monorise-team/testing";
 import { KIVOTASKS_PERMISSIONS } from "@kivotasks/contracts";
-import * as dbModule from "@kivotasks/db";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiFailure, route } from "@/server/api";
@@ -17,15 +16,13 @@ import {
   CORE_PERMISSIONS_READ_SCOPE,
   CORE_PERMISSIONS_REGISTER_SCOPE,
 } from "@/server/core-machine";
-import * as serverDb from "@/server/db";
 import {
-  assertTeamReadScope,
-  assertTimePermission,
+  assertPermission,
+  assertPermissionScope,
   getUserCapabilities,
   invalidatePermissionCache,
   PRODUCT_ACCESS_REQUIRED_MESSAGE,
 } from "@/server/permissions";
-import { getTeamCurrentEntries, listTeamTimeEntries } from "@/server/team-entries";
 
 const FAKE_CORE_URL = "http://core.local.test";
 const CLIENT_ID = "kivotasks-web";
@@ -52,45 +49,14 @@ function makeCaller(organizationId: string, accountId: string, employeeId: strin
   };
 }
 
-function makeDbRow(
-  organizationId: string,
-  accountId: string,
-  employeeId: string,
-  endedAt: Date | null = null,
-): dbModule.TimeEntryModel {
-  const startedAt = new Date("2026-11-24T08:00:00.000Z");
-  return {
-    id: dbModule.uuidv7(),
-    organizationId,
-    accountId,
-    employeeId,
-    kind: "WORK",
-    startedAt,
-    endedAt,
-    note: null,
-    createdAt: startedAt,
-    updatedAt: startedAt,
-  };
-}
-
 let fakeCore: FakeCore;
 let acme: FakeOrganizationBuilder;
 let unitKrakowId: string;
-let unitSalesId: string;
-let unitKrakowAId: string;
-let unitWarszawaId: string;
-let employeeRoleId: string;
-let managerReadRoleId: string;
-
-/**
- * Cienki adapter wokół `fakeCore.fetch`:
- * - wymusza mniejszy `limit` w zapytaniach do katalogu (test wielostronicowego stronicowania kursorowego),
- * - zapisuje zapytane identyfikatory pracowników,
- * - pozwala zasymulować błąd 500 lub sieciowy dla `/permission-snapshot`.
- */
-let directoryMaxLimit: number | null = null;
+let unitMagazynId: string;
+let memberRoleId: string;
+let adminRoleId: string;
+let guestRoleId: string;
 let snapshotFault: "none" | "server-error" | "network-error" = "none";
-let employeeBatches: string[][] = [];
 
 async function coreFetchAdapter(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -112,29 +78,13 @@ async function coreFetchAdapter(input: string | URL | Request, init?: RequestIni
     }
   }
 
-  if (url.pathname === "/core/v1/products/kivotasks/directory/employees") {
-    employeeBatches.push(url.searchParams.getAll("employeeId"));
-  }
-
-  if (
-    directoryMaxLimit !== null &&
-    (url.pathname === "/core/v1/products/kivotasks/directory/unit-members" ||
-      url.pathname === "/core/v1/products/kivotasks/directory/employees")
-  ) {
-    const requested = Number(url.searchParams.get("limit") ?? "50");
-    url.searchParams.set("limit", String(Math.min(requested, directoryMaxLimit)));
-    return fakeCore.fetch(url, init);
-  }
-
   return fakeCore.fetch(input, init);
 }
 
 beforeEach(async () => {
   process.env.CORE_AUTH_URL = FAKE_CORE_URL;
   process.env.CORE_API_URL = FAKE_CORE_URL;
-  directoryMaxLimit = null;
   snapshotFault = "none";
-  employeeBatches = [];
 
   fakeCore = await createFakeCore({
     issuer: FAKE_CORE_URL,
@@ -158,23 +108,29 @@ beforeEach(async () => {
   acme.grantEntitlement("kivotasks");
 
   const krakow = acme.addUnit({ name: "Oddział Kraków", type: "BRANCH" });
-  const sales = acme.addUnit({ name: "Dział Sprzedaży", type: "DEPARTMENT", parentId: krakow.id });
-  const krakowA = acme.addUnit({ name: "Zespół Kraków A", type: "TEAM", parentId: sales.id });
-  const warszawa = acme.addUnit({ name: "Oddział Warszawa", type: "BRANCH" });
+  const magazyn = acme.addUnit({ name: "Magazyn", type: "TEAM", parentId: krakow.id });
   unitKrakowId = krakow.id;
-  unitSalesId = sales.id;
-  unitKrakowAId = krakowA.id;
-  unitWarszawaId = warszawa.id;
+  unitMagazynId = magazyn.id;
 
-  employeeRoleId = acme.addRole({
-    name: "Pracownik",
+  memberRoleId = acme.addRole({
+    name: "Członek KivoTasks",
     product: "kivotasks",
-    permissions: [KIVOTASKS_PERMISSIONS.keys["entries.read_own"], KIVOTASKS_PERMISSIONS.keys["entries.write_own"]],
+    permissions: [KIVOTASKS_PERMISSIONS.keys["issues.read"], KIVOTASKS_PERMISSIONS.keys["issues.write"]],
   }).id;
-  managerReadRoleId = acme.addRole({
-    name: "Kierownik",
+  adminRoleId = acme.addRole({
+    name: "Administrator KivoTasks",
     product: "kivotasks",
-    permissions: [KIVOTASKS_PERMISSIONS.keys["entries.read"]],
+    permissions: [
+      KIVOTASKS_PERMISSIONS.keys["issues.read"],
+      KIVOTASKS_PERMISSIONS.keys["issues.write"],
+      KIVOTASKS_PERMISSIONS.keys["teams.manage"],
+      KIVOTASKS_PERMISSIONS.keys["projects.manage"],
+    ],
+  }).id;
+  guestRoleId = acme.addRole({
+    name: "Gość",
+    product: "kivotasks",
+    permissions: [KIVOTASKS_PERMISSIONS.keys["issues.read"]],
   }).id;
 
   invalidatePermissionCache();
@@ -186,70 +142,134 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("uprawnienia z migawki MonoriseCore i pamięć podręczna", () => {
+describe("uprawnienia KivoTasks z migawki MonoriseCore i pamięć podręczna", () => {
   it("odmawia dostępu (403 PRODUCT_ACCESS_REQUIRED), gdy migawka nie zawiera produktu kivotasks, nawet dla Ownera", async () => {
     const noPlanOrg = fakeCore.organization({ name: "BezPlanu", domain: "bezplanu.test" });
     const owner = noPlanOrg.addEmployee({ firstName: "Anna", lastName: "Nowak", isOwner: true });
 
     const caller = makeCaller(noPlanOrg.id, owner.accountId, owner.employeeId);
-    const error = await assertTimePermission(caller, KIVOTASKS_PERMISSIONS.keys["entries.read_own"]).catch((e) => e);
+    const error = await assertPermission(caller, KIVOTASKS_PERMISSIONS.keys["issues.read"]).catch((e) => e);
     expect(error).toBeInstanceOf(ApiFailure);
     expect((error as ApiFailure).status).toBe(403);
     expect((error as ApiFailure).code).toBe("PRODUCT_ACCESS_REQUIRED");
     expect((error as ApiFailure).message).toBe(PRODUCT_ACCESS_REQUIRED_MESSAGE);
 
-    expect(await getUserCapabilities(caller)).toEqual({ trackOwnTime: false, viewTeam: false });
+    expect(await getUserCapabilities(caller)).toEqual({
+      hasProductAccess: false,
+      readIssues: false,
+      writeIssues: false,
+      manageTeams: false,
+      manageProjects: false,
+    });
   });
 
-  it("przepuszcza pracownika z read_own/write_own i odmawia widoku zespołu (NONE -> 403 PERMISSION_DENIED)", async () => {
+  it("Członek KivoTasks ma issues.read i issues.write, a nie ma teams.manage ani projects.manage", async () => {
     const anna = acme.addEmployee({ firstName: "Anna", lastName: "Nowak", products: ["kivotasks"] });
-    acme.assignRole({ accountId: anna.accountId, roleId: employeeRoleId, scope: { type: "ORGANIZATION" } });
+    acme.assignRole({
+      accountId: anna.accountId,
+      roleId: memberRoleId,
+      scope: { type: "UNIT", unitId: unitMagazynId },
+    });
 
     const caller = makeCaller(acme.id, anna.accountId, anna.employeeId);
-    await expect(assertTimePermission(caller, KIVOTASKS_PERMISSIONS.keys["entries.read_own"])).resolves.toBeDefined();
-    await expect(assertTimePermission(caller, KIVOTASKS_PERMISSIONS.keys["entries.write_own"])).resolves.toBeDefined();
-    expect(await getUserCapabilities(caller)).toEqual({ trackOwnTime: true, viewTeam: false });
+    await expect(assertPermission(caller, KIVOTASKS_PERMISSIONS.keys["issues.read"])).resolves.toBeDefined();
+    await expect(assertPermission(caller, KIVOTASKS_PERMISSIONS.keys["issues.write"])).resolves.toBeDefined();
+    expect(await getUserCapabilities(caller)).toEqual({
+      hasProductAccess: true,
+      readIssues: true,
+      writeIssues: true,
+      manageTeams: false,
+      manageProjects: false,
+    });
 
-    const teamError = await assertTeamReadScope(caller).catch((e) => e);
-    expect(teamError).toBeInstanceOf(ApiFailure);
-    expect((teamError as ApiFailure).status).toBe(403);
-    expect((teamError as ApiFailure).code).toBe("PERMISSION_DENIED");
-    // Wszystkie cztery wywołania korzystały z jednej migawki w cache i jednego tokenu maszynowego
+    const teamsError = await assertPermissionScope(caller, KIVOTASKS_PERMISSIONS.keys["teams.manage"]).catch((e) => e);
+    expect(teamsError).toBeInstanceOf(ApiFailure);
+    expect((teamsError as ApiFailure).status).toBe(403);
+    expect((teamsError as ApiFailure).code).toBe("PERMISSION_DENIED");
+
+    // Wszystkie wywołania korzystały z jednej migawki w cache i jednego tokenu maszynowego
     expect(fakeCore.calls.permissionSnapshot).toBe(1);
     expect(fakeCore.calls.token).toBe(1);
+  });
+
+  it("Gość w zakresie RESOURCE ma wyłącznie issues.read z resourceIds, a Administrator w UNIT obejmuje poddrzewo", async () => {
+    const gosc = acme.addEmployee({ firstName: "Jan", lastName: "Kowalski", products: ["kivotasks"] });
+    acme.assignRole({
+      accountId: gosc.accountId,
+      roleId: guestRoleId,
+      scope: { type: "RESOURCE", resourceId: "project-przeprowadzka" },
+    });
+
+    const guestCaller = makeCaller(acme.id, gosc.accountId, gosc.employeeId);
+    expect(await assertPermissionScope(guestCaller, KIVOTASKS_PERMISSIONS.keys["issues.read"])).toEqual({
+      type: "LIMITED",
+      unitIds: [],
+      resourceIds: ["project-przeprowadzka"],
+    });
+    await expect(assertPermission(guestCaller, KIVOTASKS_PERMISSIONS.keys["issues.write"])).rejects.toMatchObject({
+      status: 403,
+      code: "PERMISSION_DENIED",
+    });
+
+    const admin = acme.addEmployee({ firstName: "Ewa", lastName: "Kowalczyk", products: ["kivotasks"] });
+    acme.assignRole({
+      accountId: admin.accountId,
+      roleId: adminRoleId,
+      scope: { type: "UNIT", unitId: unitKrakowId },
+    });
+
+    const adminCaller = makeCaller(acme.id, admin.accountId, admin.employeeId);
+    const scope = await assertPermissionScope(adminCaller, KIVOTASKS_PERMISSIONS.keys["teams.manage"]);
+    expect(scope.type).toBe("LIMITED");
+    if (scope.type === "LIMITED") {
+      expect(scope.unitIds).toEqual(expect.arrayContaining([unitKrakowId, unitMagazynId]));
+    }
+    expect(await getUserCapabilities(adminCaller)).toEqual({
+      hasProductAccess: true,
+      readIssues: true,
+      writeIssues: true,
+      manageTeams: true,
+      manageProjects: true,
+    });
+
+    const owner = acme.addEmployee({ firstName: "Ola", lastName: "Właścicielka", isOwner: true });
+    const ownerCaller = makeCaller(acme.id, owner.accountId, owner.employeeId);
+    expect(await assertPermissionScope(ownerCaller, KIVOTASKS_PERMISSIONS.keys["projects.manage"])).toEqual({
+      type: "ORGANIZATION",
+    });
   });
 
   it("natychmiast odświeża migawkę w pamięci podręcznej, gdy rośnie authz_rev w tokenie", async () => {
     const anna = acme.addEmployee({ firstName: "Anna", lastName: "Nowak", products: [] });
 
     await expect(
-      assertTimePermission(
+      assertPermission(
         makeCaller(acme.id, anna.accountId, anna.employeeId, 0),
-        KIVOTASKS_PERMISSIONS.keys["entries.read_own"],
+        KIVOTASKS_PERMISSIONS.keys["issues.read"],
       ),
     ).rejects.toMatchObject({ status: 403, code: "PRODUCT_ACCESS_REQUIRED" });
     expect(fakeCore.calls.permissionSnapshot).toBe(1);
 
-    // Owner włącza KivoTasks i nadaje rolę Pracownik (authz_rev rośnie do 1)
+    // Owner włącza KivoTasks i nadaje rolę Członek KivoTasks (authz_rev rośnie do 1)
     acme.grantAppAccess(anna.accountId, "kivotasks");
-    acme.assignRole({ accountId: anna.accountId, roleId: employeeRoleId, scope: { type: "ORGANIZATION" } });
+    acme.assignRole({ accountId: anna.accountId, roleId: memberRoleId, scope: { type: "ORGANIZATION" } });
     const nextRev = acme.bumpAuthzRevision(anna.accountId);
     expect(nextRev).toBe(1);
 
     // Stary token (authz_rev = 0) nadal dostaje wynik z cache
     await expect(
-      assertTimePermission(
+      assertPermission(
         makeCaller(acme.id, anna.accountId, anna.employeeId, 0),
-        KIVOTASKS_PERMISSIONS.keys["entries.read_own"],
+        KIVOTASKS_PERMISSIONS.keys["issues.read"],
       ),
     ).rejects.toMatchObject({ status: 403, code: "PRODUCT_ACCESS_REQUIRED" });
     expect(fakeCore.calls.permissionSnapshot).toBe(1);
 
     // Nowy token (authz_rev = 1) od razu odświeża migawkę bez czekania 5 minut
     await expect(
-      assertTimePermission(
+      assertPermission(
         makeCaller(acme.id, anna.accountId, anna.employeeId, nextRev),
-        KIVOTASKS_PERMISSIONS.keys["entries.read_own"],
+        KIVOTASKS_PERMISSIONS.keys["issues.read"],
       ),
     ).resolves.toBeDefined();
     expect(fakeCore.calls.permissionSnapshot).toBe(2);
@@ -258,143 +278,21 @@ describe("uprawnienia z migawki MonoriseCore i pamięć podręczna", () => {
   it("zwraca 503 przez route(), gdy Core API jest niedostępne lub zwraca 500", async () => {
     const anna = acme.addEmployee({ firstName: "Anna", lastName: "Nowak", products: ["kivotasks"] });
     const handler = route(async () => {
-      await assertTimePermission(
+      await assertPermission(
         makeCaller(acme.id, anna.accountId, anna.employeeId),
-        KIVOTASKS_PERMISSIONS.keys["entries.read_own"],
+        KIVOTASKS_PERMISSIONS.keys["issues.read"],
       );
       return { ok: true };
     });
 
     snapshotFault = "server-error";
-    const req1 = new NextRequest("http://kivo.localhost:3500/api/v1/time/current");
+    const req1 = new NextRequest("http://kivo.localhost:3500/api/v1/me");
     const res1 = await handler(req1, { params: Promise.resolve({}) });
     expect(res1.status).toBe(503);
 
     snapshotFault = "network-error";
-    const req2 = new NextRequest("http://kivo.localhost:3500/api/v1/time/current");
+    const req2 = new NextRequest("http://kivo.localhost:3500/api/v1/me");
     const res2 = await handler(req2, { params: Promise.resolve({}) });
     expect(res2.status).toBe(503);
-  });
-});
-
-describe("widok zespołu (kierownik): zakresy, stronicowanie i paczki po 100", () => {
-  function mockTeamDb(allRows: dbModule.TimeEntryModel[]) {
-    const capturedScopes: dbModule.TeamScope[] = [];
-    vi.spyOn(serverDb, "getDb").mockReturnValue({} as dbModule.PrismaClient);
-    vi.spyOn(dbModule, "withTeamScope").mockImplementation(async (_db, _actor, scope, fn) => {
-      capturedScopes.push(scope);
-      const visible =
-        scope.type === "ALL" ? allRows : allRows.filter((row) => scope.employeeIds.includes(row.employeeId));
-      const fakeTx = {
-        timeEntry: {
-          findMany: async () => visible,
-        },
-      } as unknown as dbModule.Tx;
-      return fn(fakeTx);
-    });
-    return { capturedScopes };
-  }
-
-  it("Jan z zakresem UNIT Kraków widzi Annę (podjednostka Krakowa) i Marka, a nie Piotra (Warszawa), ze stronicowaniem katalogu", async () => {
-    directoryMaxLimit = 1;
-
-    const anna = acme.addEmployee({
-      firstName: "Anna",
-      lastName: "Nowak",
-      unitIds: [unitKrakowAId],
-      products: ["kivotasks"],
-    });
-    const marek = acme.addEmployee({
-      firstName: "Marek",
-      lastName: "Kowalski",
-      unitIds: [unitSalesId],
-      products: ["kivotasks"],
-    });
-    const piotr = acme.addEmployee({
-      firstName: "Piotr",
-      lastName: "Zieliński",
-      unitIds: [unitWarszawaId],
-      products: ["kivotasks"],
-    });
-    const jan = acme.addEmployee({ firstName: "Jan", lastName: "Wiśniewski", products: ["kivotasks"] });
-    acme.assignRole({
-      accountId: jan.accountId,
-      roleId: managerReadRoleId,
-      scope: { type: "UNIT", unitId: unitKrakowId },
-    });
-
-    const annaRow = makeDbRow(acme.id, anna.accountId, anna.employeeId, null);
-    const marekRow = makeDbRow(acme.id, marek.accountId, marek.employeeId, null);
-    const piotrRow = makeDbRow(acme.id, piotr.accountId, piotr.employeeId, null);
-    const { capturedScopes } = mockTeamDb([annaRow, marekRow, piotrRow]);
-
-    const result = await getTeamCurrentEntries(makeCaller(acme.id, jan.accountId, jan.employeeId));
-    expect(capturedScopes).toHaveLength(1);
-    expect(capturedScopes[0]).toEqual({
-      type: "EMPLOYEES",
-      employeeIds: expect.arrayContaining([anna.employeeId, marek.employeeId]),
-    });
-    expect(result.entries.map((e) => e.employee)).toEqual([
-      { id: anna.employeeId, firstName: "Anna", lastName: "Nowak" },
-      { id: marek.employeeId, firstName: "Marek", lastName: "Kowalski" },
-    ]);
-    // Stronicowanie po 1 elemencie wymusiło wiele zapytań z kursorem w atrapie Core
-    expect(fakeCore.calls.directoryUnitMembers).toBeGreaterThanOrEqual(2);
-    expect(fakeCore.calls.directoryEmployees).toBeGreaterThanOrEqual(2);
-    // Katalog pracowników został zapytany wyłącznie o Annę i Marka, bez Piotra
-    for (const ids of employeeBatches) {
-      expect(ids).not.toContain(piotr.employeeId);
-    }
-  });
-
-  it("zakres ORGANIZATION widzi wszystkich pracowników firmy bez wywoływania directory/unit-members", async () => {
-    const anna = acme.addEmployee({ firstName: "Anna", lastName: "Nowak", products: ["kivotasks"] });
-    const piotr = acme.addEmployee({ firstName: "Piotr", lastName: "Zieliński", products: ["kivotasks"] });
-    const owner = acme.addEmployee({ firstName: "Jan", lastName: "Wiśniewski", isOwner: true });
-
-    const { capturedScopes } = mockTeamDb([
-      makeDbRow(acme.id, anna.accountId, anna.employeeId, new Date("2026-11-24T12:00:00.000Z")),
-      makeDbRow(acme.id, piotr.accountId, piotr.employeeId, new Date("2026-11-24T12:00:00.000Z")),
-    ]);
-
-    const result = await listTeamTimeEntries(makeCaller(acme.id, owner.accountId, owner.employeeId), {
-      from: "2026-11-24",
-      to: "2026-11-24",
-    });
-    expect(capturedScopes).toEqual([{ type: "ALL" }]);
-    expect(fakeCore.calls.directoryUnitMembers).toBe(0);
-    expect(result.entries.map((e) => e.employee.firstName)).toEqual(["Anna", "Piotr"]);
-  });
-
-  it("pomija nadania typu RESOURCE bez pytania o wszystkie jednostki firmy", async () => {
-    const anna = acme.addEmployee({ firstName: "Anna", lastName: "Nowak", products: ["kivotasks"] });
-    const jan = acme.addEmployee({ firstName: "Jan", lastName: "Wiśniewski", products: ["kivotasks"] });
-    acme.assignRole({
-      accountId: jan.accountId,
-      roleId: managerReadRoleId,
-      scope: { type: "RESOURCE", resourceId: "project-1" },
-    });
-
-    const { capturedScopes } = mockTeamDb([makeDbRow(acme.id, anna.accountId, anna.employeeId, null)]);
-    const result = await getTeamCurrentEntries(makeCaller(acme.id, jan.accountId, jan.employeeId));
-    expect(result.entries).toEqual([]);
-    expect(fakeCore.calls.directoryUnitMembers).toBe(0);
-    expect(capturedScopes).toEqual([]);
-  });
-
-  it("dzieli zapytania do directory/employees na paczki po 100 identyfikatorów", async () => {
-    const owner = acme.addEmployee({ firstName: "Jan", lastName: "Wiśniewski", isOwner: true });
-
-    const rows: dbModule.TimeEntryModel[] = [];
-    for (let i = 0; i < 125; i += 1) {
-      const emp = acme.addEmployee({ firstName: `Imie${i}`, lastName: `Nazwisko${i}` });
-      rows.push(makeDbRow(acme.id, emp.accountId, emp.employeeId, null));
-    }
-
-    mockTeamDb(rows);
-    const result = await getTeamCurrentEntries(makeCaller(acme.id, owner.accountId, owner.employeeId));
-    expect(result.entries).toHaveLength(125);
-    expect(employeeBatches.map((batch) => batch.length)).toEqual([100, 25]);
-    expect(fakeCore.calls.directoryEmployees).toBe(2);
   });
 });

@@ -5,30 +5,18 @@
  * Moduł celowo nie importuje `server-only` i używa wyłącznie składni usuwalnej typów TypeScript,
  * dzięki czemu Node 24 uruchamia generator OpenAPI bez dodatkowego kompilatora.
  */
-import {
-  API_PREFIX,
-  Health,
-  MAX_ENTRIES_RANGE_DAYS,
-  Me,
-  StartTimeEntryInput,
-  StopTimeEntryInput,
-  TeamCurrentList,
-  TeamTimeEntriesList,
-  TimeEntriesList,
-  TimeEntry,
-  type ErrorCode,
-} from "@kivotasks/contracts";
-import { z } from "zod";
+import { API_PREFIX, Health, Me, type ErrorCode } from "@kivotasks/contracts";
+import type { z } from "zod";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
-export type RouteTag = "System" | "Session" | "Time" | "Team";
+export type RouteTag = "System" | "Session";
 
 /**
  * Wymagane uwierzytelnienie trasy:
  * - `false`: publiczna (bez tokenu i bez sesji),
  * - `"session"`: wyłącznie sesja BFF przeglądarki w ciasteczku `HttpOnly`,
- * - `"user"`: token użytkownika `Bearer` (aplikacja mobilna) albo sesja BFF przeglądarki.
+ * - `"user"`: token użytkownika `Bearer` albo sesja BFF przeglądarki.
  */
 export type RouteAuth = false | "session" | "user";
 
@@ -40,8 +28,6 @@ export interface TagDefinition {
 export const TAGS: readonly TagDefinition[] = [
   { name: "System", description: "Stan usługi KivoTasks." },
   { name: "Session", description: "Dane zalogowanej osoby, firmy i możliwości widoczne w przeglądarce (BFF)." },
-  { name: "Time", description: "Rejestracja i odczyt własnych wpisów czasu pracy." },
-  { name: "Team", description: "Widok kierownika: bieżący status i wpisy zespołu w zakresie uprawnień." },
 ];
 
 export type SuccessStatus = 200 | 201 | 204;
@@ -58,7 +44,7 @@ export interface ParameterDefinition {
 
 export interface RouteDefinition {
   method: HttpMethod;
-  /** Ścieżka w formacie OpenAPI (np. `/api/v1/time/entries`). */
+  /** Ścieżka w formacie OpenAPI (np. `/api/v1/me`). */
   path: string;
   operationId: string;
   tag: RouteTag;
@@ -84,32 +70,6 @@ export interface RouteDefinition {
   responseDescription: string;
   errors: RouteErrors;
 }
-
-/** Otwarty wpis czasu pracy zalogowanej osoby albo `null`, gdy aktualnie nic nie trwa. */
-export const CurrentTimeEntry = TimeEntry.nullable();
-
-const DateRangeParamSchema = z.string().min(1);
-
-const RANGE_PARAMETERS: readonly ParameterDefinition[] = [
-  {
-    name: "from",
-    in: "query",
-    required: false,
-    description:
-      `Początek przedziału dat w formacie ISO 8601 (YYYY-MM-DD lub pełny znacznik czasu UTC). ` +
-      `Domyślnie początek dzisiejszego dnia w UTC; maksymalna rozpiętość przedziału to ${MAX_ENTRIES_RANGE_DAYS} dni.`,
-    schema: DateRangeParamSchema,
-  },
-  {
-    name: "to",
-    in: "query",
-    required: false,
-    description:
-      `Koniec przedziału dat w formacie ISO 8601 (YYYY-MM-DD lub pełny znacznik czasu UTC). ` +
-      `Domyślnie koniec dzisiejszego dnia w UTC; data końcowa nie może być wcześniejsza niż początkowa.`,
-    schema: DateRangeParamSchema,
-  },
-];
 
 export const ROUTES = {
   getHealth: {
@@ -139,7 +99,7 @@ export const ROUTES = {
     description:
       "Zwraca profil osoby i firmy pobrany z MonoriseCore (`GET /core/v1/me`) oraz pole `capabilities` wyliczone " +
       "z migawki uprawnień produktu `kivotasks`. Dostępne wyłącznie przez sesję BFF przeglądarki (ciasteczko); " +
-      "aplikacja mobilna z tokenem Bearer otrzymuje `403 PERMISSION_DENIED`, bo pobiera profil bezpośrednio z Core API.",
+      "wywołania z tokenem Bearer otrzymują `403 PERMISSION_DENIED`, bo profil osoby i firmy pobierają bezpośrednio z Core API.",
     auth: "session",
     successStatus: 200,
     envelope: true,
@@ -150,168 +110,6 @@ export const ROUTES = {
     errors: {
       401: ["UNAUTHENTICATED"],
       403: ["PERMISSION_DENIED"],
-      500: ["INTERNAL_ERROR"],
-      503: ["INTERNAL_ERROR"],
-    },
-  },
-  getCurrentTimeEntry: {
-    method: "GET",
-    path: `${API_PREFIX}/time/current`,
-    operationId: "getCurrentTimeEntry",
-    tag: "Time",
-    summary: "Bieżący otwarty wpis czasu pracy",
-    description:
-      "Zwraca aktualnie otwarty wpis zalogowanej osoby (`endedAt: null`) albo `null`. " +
-      "Wymaga aktywnego dostępu do produktu `kivotasks` i uprawnienia `kivotasks.entries.read_own`.",
-    auth: "user",
-    successStatus: 200,
-    envelope: true,
-    dataSchemaName: "CurrentTimeEntry",
-    dataSchema: CurrentTimeEntry,
-    responseSchemaName: "CurrentTimeEntryResponse",
-    responseDescription: "Otwarty wpis czasu pracy albo null.",
-    errors: {
-      401: ["UNAUTHENTICATED"],
-      403: ["PRODUCT_ACCESS_REQUIRED", "PERMISSION_DENIED"],
-      500: ["INTERNAL_ERROR"],
-      503: ["INTERNAL_ERROR"],
-    },
-  },
-  startTimeEntry: {
-    method: "POST",
-    path: `${API_PREFIX}/time/start`,
-    operationId: "startTimeEntry",
-    tag: "Time",
-    summary: "Rozpoczęcie nowego wpisu czasu pracy",
-    description:
-      "Otwiera nowy wpis czasu pracy wybranego rodzaju (`WORK`, `BREAK`, `REMOTE`, `BUSINESS_TRIP`). " +
-      "Jeśli osoba ma już otwarty wpis, najpierw zamyka go w tej samej transakcji. Równoczesne wywołania " +
-      "startu bez otwartego wpisu zwracają `409 CONFLICT`. Wymaga dostępu do produktu `kivotasks` i uprawnienia " +
-      "`kivotasks.entries.write_own`.",
-    auth: "user",
-    successStatus: 201,
-    envelope: true,
-    requestBodySchemaName: "StartTimeEntryInput",
-    requestBodySchema: StartTimeEntryInput,
-    requestBodyRequired: true,
-    requestBodyDescription: "Rodzaj nowego wpisu oraz opcjonalna notatka (do 500 znaków).",
-    dataSchemaName: "TimeEntry",
-    dataSchema: TimeEntry,
-    responseSchemaName: "TimeEntryResponse",
-    responseDescription: "Utworzony, otwarty wpis czasu pracy.",
-    errors: {
-      401: ["UNAUTHENTICATED"],
-      403: ["PRODUCT_ACCESS_REQUIRED", "PERMISSION_DENIED"],
-      409: ["CONFLICT"],
-      422: ["VALIDATION_FAILED"],
-      500: ["INTERNAL_ERROR"],
-      503: ["INTERNAL_ERROR"],
-    },
-  },
-  stopTimeEntry: {
-    method: "POST",
-    path: `${API_PREFIX}/time/stop`,
-    operationId: "stopTimeEntry",
-    tag: "Time",
-    summary: "Zakończenie bieżącego wpisu czasu pracy",
-    description:
-      "Zamyka bieżący otwarty wpis zalogowanej osoby. Jeśli brak otwartego wpisu, zwraca `409 CONFLICT`. " +
-      "Treść żądania jest opcjonalna (puste ciało lub `{}`). Wymaga dostępu do produktu `kivotasks` i uprawnienia " +
-      "`kivotasks.entries.write_own`.",
-    auth: "user",
-    successStatus: 200,
-    envelope: true,
-    requestBodySchemaName: "StopTimeEntryInput",
-    requestBodySchema: StopTimeEntryInput,
-    requestBodyRequired: false,
-    requestBodyDescription: "Opcjonalna notatka nadpisująca notatkę zamykanego wpisu (do 500 znaków).",
-    dataSchemaName: "TimeEntry",
-    dataSchema: TimeEntry,
-    responseSchemaName: "TimeEntryResponse",
-    responseDescription: "Zamknięty wpis czasu pracy.",
-    errors: {
-      401: ["UNAUTHENTICATED"],
-      403: ["PRODUCT_ACCESS_REQUIRED", "PERMISSION_DENIED"],
-      409: ["CONFLICT"],
-      422: ["VALIDATION_FAILED"],
-      500: ["INTERNAL_ERROR"],
-      503: ["INTERNAL_ERROR"],
-    },
-  },
-  listTimeEntries: {
-    method: "GET",
-    path: `${API_PREFIX}/time/entries`,
-    operationId: "listTimeEntries",
-    tag: "Time",
-    summary: "Własne wpisy czasu pracy w przedziale dat",
-    description:
-      `Zapytanie zakresowe (bez stronicowania kursorowego): zwraca wszystkie własne wpisy nakładające się na ` +
-      `przedział [from, to] (maksymalnie ${MAX_ENTRIES_RANGE_DAYS} dni, domyślnie dzisiejszy dzień w UTC), ` +
-      `łącznie ze zmianami nocnymi i wpisami nadal otwartymi. Wymaga dostępu do produktu \`kivotasks\` i uprawnienia ` +
-      `\`kivotasks.entries.read_own\`.`,
-    auth: "user",
-    successStatus: 200,
-    envelope: true,
-    parameters: RANGE_PARAMETERS,
-    dataSchemaName: "TimeEntriesList",
-    dataSchema: TimeEntriesList,
-    responseSchemaName: "TimeEntriesListResponse",
-    responseDescription: "Własne wpisy czasu pracy oraz wyliczone granice przedziału [from, to].",
-    errors: {
-      401: ["UNAUTHENTICATED"],
-      403: ["PRODUCT_ACCESS_REQUIRED", "PERMISSION_DENIED"],
-      422: ["VALIDATION_FAILED"],
-      500: ["INTERNAL_ERROR"],
-      503: ["INTERNAL_ERROR"],
-    },
-  },
-  getTeamCurrentEntries: {
-    method: "GET",
-    path: `${API_PREFIX}/team/current`,
-    operationId: "getTeamCurrentEntries",
-    tag: "Team",
-    summary: "Kto z zespołu aktualnie pracuje",
-    description:
-      "Bieżący stan otwartych wpisów pracowników objętych zakresem uprawnienia `kivotasks.entries.read` " +
-      "(`ORGANIZATION` albo poddrzewo jednostek `UNIT`; zapytanie nie jest stronicowane kursorowo). " +
-      "Dane pracownika pochodzą z Core Directory, a baza wymusza separację firmy przez RLS (`withTeamScope`).",
-    auth: "user",
-    successStatus: 200,
-    envelope: true,
-    dataSchemaName: "TeamCurrentList",
-    dataSchema: TeamCurrentList,
-    responseSchemaName: "TeamCurrentListResponse",
-    responseDescription: "Lista aktualnie otwartych wpisów pracowników w zakresie kierownika.",
-    errors: {
-      401: ["UNAUTHENTICATED"],
-      403: ["PRODUCT_ACCESS_REQUIRED", "PERMISSION_DENIED"],
-      500: ["INTERNAL_ERROR"],
-      503: ["INTERNAL_ERROR"],
-    },
-  },
-  listTeamTimeEntries: {
-    method: "GET",
-    path: `${API_PREFIX}/team/entries`,
-    operationId: "listTeamTimeEntries",
-    tag: "Team",
-    summary: "Wpisy czasu pracy zespołu w przedziale dat",
-    description:
-      `Zapytanie zakresowe (bez stronicowania kursorowego): zwraca wpisy czasu pracy pracowników z zakresu ` +
-      `uprawnienia \`kivotasks.entries.read\` nakładające się na przedział [from, to] (maksymalnie ` +
-      `${MAX_ENTRIES_RANGE_DAYS} dni, domyślnie dzisiejszy dzień w UTC), łącznie ze zmianami nocnymi i wpisami ` +
-      `otwartymi. Wymaga dostępu do produktu \`kivotasks\` i uprawnienia \`kivotasks.entries.read\`.`,
-    auth: "user",
-    successStatus: 200,
-    envelope: true,
-    parameters: RANGE_PARAMETERS,
-    dataSchemaName: "TeamTimeEntriesList",
-    dataSchema: TeamTimeEntriesList,
-    responseSchemaName: "TeamTimeEntriesListResponse",
-    responseDescription: "Wpisy czasu pracy zespołu oraz wyliczone granice przedziału [from, to].",
-    errors: {
-      401: ["UNAUTHENTICATED"],
-      403: ["PRODUCT_ACCESS_REQUIRED", "PERMISSION_DENIED"],
-      422: ["VALIDATION_FAILED"],
       500: ["INTERNAL_ERROR"],
       503: ["INTERNAL_ERROR"],
     },

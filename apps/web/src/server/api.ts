@@ -141,8 +141,8 @@ export function route<P = Record<string, never>>(
 }
 
 /**
- * Zmiany wysłane z ciasteczkiem sesji muszą pochodzić z tej samej strony (CSRF). Aplikacja na telefon
- * z tokenem w nagłówku Authorization nie wysyła ciasteczek, więc jej to nie dotyczy.
+ * Zmiany wysłane z ciasteczkiem sesji muszą pochodzić z tej samej strony (CSRF). Wywołania
+ * z tokenem w nagłówku Authorization nie korzystają z ciasteczek sesji, więc ich to nie dotyczy.
  */
 function assertSameOrigin(request: NextRequest) {
   if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return;
@@ -160,20 +160,6 @@ export async function readJson(request: NextRequest): Promise<unknown> {
   }
   try {
     return await request.json();
-  } catch {
-    throw new ApiFailure(422, "VALIDATION_FAILED", "Niepoprawny JSON");
-  }
-}
-
-/** Odczytuje opcjonalne ciało JSON; przy pustym ciele zwraca pusty obiekt. */
-export async function readOptionalJson(request: NextRequest): Promise<unknown> {
-  const raw = await request.text();
-  if (raw.trim().length === 0) return {};
-  if (!request.headers.get("content-type")?.includes("application/json")) {
-    throw new ApiFailure(422, "VALIDATION_FAILED", "Oczekiwano JSON (Content-Type: application/json)");
-  }
-  try {
-    return JSON.parse(raw) as unknown;
   } catch {
     throw new ApiFailure(422, "VALIDATION_FAILED", "Niepoprawny JSON");
   }

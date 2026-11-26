@@ -1,6 +1,7 @@
 /**
  * Testy zgodności KivoTasks z kontraktem produktu Monorise (ADR-0046, ADR-0075) za pomocą
- * `defineProductContractTests` z `@monorise-team/testing` oraz kontrola spójności opisu OpenAPI 3.1.
+ * `defineProductContractTests`, `checkAuthentication` i `checkProductAccess` z `@monorise-team/testing`
+ * oraz kontrola spójności opisu OpenAPI 3.1.
  *
  * Testy działają bez bazy PostgreSQL i bez gniazd TCP (atrapa `createFakeCore` podpięta pod
  * `globalThis.fetch`; wszystkie odmowy uwierzytelnienia, dostępu do produktu i uprawnień
@@ -8,17 +9,21 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { createFakeCore, defineProductContractTests, type FakeCore } from "@monorise-team/testing";
+import {
+  checkAuthentication,
+  checkProductAccess,
+  createFakeCore,
+  defineProductContractTests,
+  formatViolations,
+  type FakeCore,
+} from "@monorise-team/testing";
+import { KIVOTASKS_PERMISSIONS } from "@kivotasks/contracts";
 import { NextRequest } from "next/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as health from "@/app/api/v1/health/route";
 import * as me from "@/app/api/v1/me/route";
-import * as teamCurrent from "@/app/api/v1/team/current/route";
-import * as teamEntries from "@/app/api/v1/team/entries/route";
-import * as current from "@/app/api/v1/time/current/route";
-import * as entries from "@/app/api/v1/time/entries/route";
-import * as start from "@/app/api/v1/time/start/route";
-import * as stop from "@/app/api/v1/time/stop/route";
+import { route } from "@/server/api";
+import { requireUser } from "@/server/auth";
 import { resetMachineCoreTokenCache } from "@/server/core";
 import {
   CORE_DIRECTORY_READ_SCOPE,
@@ -27,7 +32,7 @@ import {
   CORE_PERMISSIONS_REGISTER_SCOPE,
 } from "@/server/core-machine";
 import { buildOpenApiDocument, serializeOpenApiDocument } from "@/server/openapi";
-import { invalidatePermissionCache } from "@/server/permissions";
+import { assertPermission, invalidatePermissionCache } from "@/server/permissions";
 import { ROUTE_LIST } from "@/server/routes";
 
 const API = "http://kivo.localhost:3500";
@@ -45,18 +50,12 @@ type NextRouteHandler = (
 const ROUTE_HANDLERS: Readonly<Record<string, NextRouteHandler>> = {
   "GET /api/v1/health": health.GET,
   "GET /api/v1/me": me.GET,
-  "GET /api/v1/time/current": current.GET,
-  "POST /api/v1/time/start": start.POST,
-  "POST /api/v1/time/stop": stop.POST,
-  "GET /api/v1/time/entries": entries.GET,
-  "GET /api/v1/team/current": teamCurrent.GET,
-  "GET /api/v1/team/entries": teamEntries.GET,
 };
 
-async function dispatchNextRoute(request: Request): Promise<Response> {
+async function dispatch(handlers: Readonly<Record<string, NextRouteHandler>>, request: Request): Promise<Response> {
   const url = new URL(request.url);
   const key = `${request.method.toUpperCase()} ${url.pathname}`;
-  const handler = ROUTE_HANDLERS[key];
+  const handler = handlers[key];
   if (!handler) {
     return new Response(
       JSON.stringify({
@@ -147,18 +146,47 @@ await defineProductContractTests({
   baseUrl: API,
   audience: API,
   fakeCore: () => fakeCore,
-  handler: dispatchNextRoute,
+  handler: (request) => dispatch(ROUTE_HANDLERS, request),
   routes: [
-    { method: "GET", path: "/api/v1/time/current" },
-    { method: "POST", path: "/api/v1/time/start", body: { kind: "WORK" } },
-    { method: "POST", path: "/api/v1/time/stop", body: {} },
-    { method: "GET", path: "/api/v1/time/entries" },
-    { method: "GET", path: "/api/v1/team/current" },
-    { method: "GET", path: "/api/v1/team/entries" },
     // Trasa BFF `/me` zwraca profil i capabilities nawet przed włączeniem KivoTasks i nie wymaga osobnego uprawnienia
     { method: "GET", path: "/api/v1/me", skipPermissionCheck: true, skipProductAccessCheck: true },
   ],
   openApi: () => buildOpenApiDocument(),
+});
+
+describe("Kontrakt warstwy route() + requireUser() + assertPermission() (etap 0)", () => {
+  // Przed pojawieniem się tras domenowych w etapie 1 weryfikujemy wspólną ścieżkę uprawnień i dostępu do produktu.
+  const probeHandlers: Readonly<Record<string, NextRouteHandler>> = {
+    "GET /api/v1/_contract-probe": route(async ({ request }) => {
+      const caller = await requireUser(request);
+      await assertPermission(caller, KIVOTASKS_PERMISSIONS.keys["issues.read"]);
+      return { ok: true };
+    }),
+  };
+
+  it("odrzuca brak tokenu, błędne tokeny (401) i brak uprawnienia (403 PERMISSION_DENIED)", async () => {
+    const result = await checkAuthentication({
+      productKey: "kivotasks",
+      baseUrl: API,
+      audience: API,
+      fakeCore,
+      handler: (request) => dispatch(probeHandlers, request),
+      routes: [{ method: "GET", path: "/api/v1/_contract-probe" }],
+    });
+    expect(result.passed, formatViolations(result.violations)).toBe(true);
+  });
+
+  it("odrzuca firmę bez Entitlement i konto bez AppAccess (403 PRODUCT_ACCESS_REQUIRED)", async () => {
+    const result = await checkProductAccess({
+      productKey: "kivotasks",
+      baseUrl: API,
+      audience: API,
+      fakeCore,
+      handler: (request) => dispatch(probeHandlers, request),
+      routes: [{ method: "GET", path: "/api/v1/_contract-probe" }],
+    });
+    expect(result.passed, formatViolations(result.violations)).toBe(true);
+  });
 });
 
 describe("OpenAPI KivoTasks API", () => {
@@ -173,17 +201,11 @@ describe("OpenAPI KivoTasks API", () => {
     expect(catalogOps).toEqual(dispatchedOps);
   });
 
-  it("deklaruje schematy bezpieczeństwa bearerAuth i sessionCookie oraz zapytania zakresowe entries", () => {
+  it("deklaruje schematy bezpieczeństwa bearerAuth i sessionCookie", () => {
     const document = buildOpenApiDocument();
     expect(Object.keys(document.components.securitySchemes).sort()).toEqual(["bearerAuth", "sessionCookie"]);
     expect(document.paths["/api/v1/health"]?.get?.security).toBeUndefined();
     expect(document.paths["/api/v1/me"]?.get?.security).toEqual([{ sessionCookie: [] }]);
-    expect(document.paths["/api/v1/time/current"]?.get?.security).toEqual([{ bearerAuth: [] }, { sessionCookie: [] }]);
-
-    for (const rangePath of ["/api/v1/time/entries", "/api/v1/team/entries"]) {
-      const paramNames = (document.paths[rangePath]?.get?.parameters ?? []).map((p) => p.name);
-      expect(paramNames).toEqual(["from", "to"]);
-    }
   });
 
   it("nie ma zerwanych ani nieużywanych schematów w components.schemas i zgadza się z openapi/kivotasks-api.json", () => {

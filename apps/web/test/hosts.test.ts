@@ -6,13 +6,13 @@ const HOSTS = appHosts(undefined);
 describe("dwa adresy z jednej aplikacji", () => {
   it("kivotasks. pokazuje aplikację: ścieżki przepisuje na /app", () => {
     expect(routeFor("kivotasks.monorise.studio", "/", HOSTS)).toEqual({ kind: "rewrite", pathname: "/app" });
-    expect(routeFor("kivotasks.localhost", "/entries", HOSTS)).toEqual({ kind: "rewrite", pathname: "/app/entries" });
+    expect(routeFor("kivotasks.localhost", "/issues", HOSTS)).toEqual({ kind: "rewrite", pathname: "/app/issues" });
   });
 
-  it("time. pokazuje stronę produktu, a ścieżki /app dają tam 404", () => {
+  it("kivo. pokazuje stronę produktu, a ścieżki /app dają tam 404", () => {
     expect(routeFor("kivo.monorise.studio", "/", HOSTS)).toEqual({ kind: "next" });
     expect(routeFor("kivo.monorise.studio", "/app", HOSTS)).toEqual({ kind: "not-found" });
-    expect(routeFor("localhost", "/app/entries", HOSTS)).toEqual({ kind: "not-found" });
+    expect(routeFor("localhost", "/app/issues", HOSTS)).toEqual({ kind: "not-found" });
   });
 
   it("czyta nazwę hosta bez portu", () => {
@@ -21,6 +21,6 @@ describe("dwa adresy z jednej aplikacji", () => {
   });
 
   it("lista adresów aplikacji z KIVOTASKS_APP_HOSTS", () => {
-    expect(appHosts("czas.example.test, App.Example.test")).toEqual(["czas.example.test", "app.example.test"]);
+    expect(appHosts("zadania.example.test, App.Example.test")).toEqual(["zadania.example.test", "app.example.test"]);
   });
 });

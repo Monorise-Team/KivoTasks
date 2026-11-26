@@ -1,16 +1,17 @@
-import { ApiError, type TimeEntry, type TimeEntryKind } from "@kivotasks/client";
-import type { BadgeTone } from "@monorise-team/ui";
-import { entryDurationMs, formatDuration, formatTime } from "@/lib/time-format";
+import type { Capabilities } from "@kivotasks/client";
 
-export type AppView = "my-time" | "team" | "appearance";
+export type AppView = "my-issues" | "teams" | "appearance";
 
 export const VIEW_HASHES: Record<AppView, string> = {
-  "my-time": "#moj-czas",
-  team: "#zespol",
+  "my-issues": "#moje-zadania",
+  teams: "#zespoly",
   appearance: "#wyglad",
 };
 
 export const DEFAULT_NO_ACCESS_MESSAGE = "KivoTasks nie jest włączony dla Twojego konta. Poproś Ownera firmy o dostęp.";
+
+export const DEFAULT_NO_ROLE_MESSAGE =
+  "Twoje konto nie ma jeszcze przypisanej roli w KivoTasks. Poproś administratora firmy o nadanie dostępu.";
 
 export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   expired: "Sesja logowania wygasła. Spróbuj zalogować się ponownie.",
@@ -19,54 +20,29 @@ export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   failed: "Nie udało się dokończyć logowania. Spróbuj ponownie.",
 };
 
-export const KIND_TONES: Record<TimeEntryKind, BadgeTone> = {
-  WORK: "success",
-  BREAK: "warning",
-  REMOTE: "accent",
-  BUSINESS_TRIP: "neutral",
-};
-
-const START_TOAST_PREFIX: Record<TimeEntryKind, string> = {
-  WORK: "Praca rozpoczęta",
-  BREAK: "Przerwa rozpoczęta",
-  REMOTE: "Praca zdalna rozpoczęta",
-  BUSINESS_TRIP: "Wyjście służbowe rozpoczęte",
-};
-
-/** Aktualny czas do licznika. Wołane w obsłudze zdarzeń i w efektach, nigdy w renderze. */
-export function readClock(): number {
-  return Date.now();
-}
-
-export function isAccessDeniedError(error: unknown): error is ApiError {
-  return (
-    error instanceof ApiError &&
-    (error.code === "PRODUCT_ACCESS_REQUIRED" || error.code === "PERMISSION_DENIED" || error.status === 403)
-  );
+/**
+ * Zwraca komunikat blokady, gdy konto nie ma dostępu do produktu ani żadnego uprawnienia w KivoTasks.
+ * Zwraca `null`, gdy osoba może korzystać z aplikacji.
+ */
+export function resolveAccessDenialMessage(capabilities: Capabilities): string | null {
+  if (!capabilities.hasProductAccess) {
+    return DEFAULT_NO_ACCESS_MESSAGE;
+  }
+  const hasAnyPermission =
+    capabilities.readIssues || capabilities.writeIssues || capabilities.manageTeams || capabilities.manageProjects;
+  if (!hasAnyPermission) {
+    return DEFAULT_NO_ROLE_MESSAGE;
+  }
+  return null;
 }
 
 /**
- * Zamienia fragment adresu (`#moj-czas`, `#zespol`, `#wyglad`) na aktywny widok aplikacji.
- * Nieznany fragment albo `#zespol` bez uprawnienia wraca do widoku „Mój czas”.
+ * Zamienia fragment adresu (`#moje-zadania`, `#zespoly`, `#wyglad`) na aktywny widok aplikacji.
+ * Nieznany albo pusty fragment wraca do widoku „Moje zadania”.
  */
-export function parseViewFromHash(
-  hash: string,
-  capabilities: { canViewTeam: boolean; canTrackOwn?: boolean },
-): AppView {
+export function parseViewFromHash(hash: string): AppView {
   const normalized = hash.trim().toLowerCase();
   if (normalized === VIEW_HASHES.appearance) return "appearance";
-  if (normalized === VIEW_HASHES.team && capabilities.canViewTeam) return "team";
-  if (normalized === VIEW_HASHES["my-time"]) return "my-time";
-  if (capabilities.canTrackOwn === false && capabilities.canViewTeam) return "team";
-  return "my-time";
-}
-
-/** Tytuł powiadomienia po rozpoczęciu nowego wpisu (np. „Praca rozpoczęta o 09:02”). */
-export function formatStartToastTitle(entry: Pick<TimeEntry, "kind" | "startedAt">): string {
-  return `${START_TOAST_PREFIX[entry.kind]} o ${formatTime(entry.startedAt)}`;
-}
-
-/** Tytuł powiadomienia po zakończeniu bieżącego wpisu (np. „Zakończono: 1 godz. 12 min”). */
-export function formatStopToastTitle(entry: TimeEntry, nowMs: number): string {
-  return `Zakończono: ${formatDuration(entryDurationMs(entry, nowMs))}`;
+  if (normalized === VIEW_HASHES.teams) return "teams";
+  return "my-issues";
 }
