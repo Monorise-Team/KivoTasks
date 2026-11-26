@@ -175,6 +175,7 @@ describe("odporność serwera KivoTasks na krótkie awarie MonoriseCore", () => 
           readIssues: boolean;
           writeIssues: boolean;
           manageTeams: boolean;
+          createTeams: boolean;
           manageProjects: boolean;
         };
       };
@@ -187,6 +188,7 @@ describe("odporność serwera KivoTasks na krótkie awarie MonoriseCore", () => 
       readIssues: true,
       writeIssues: true,
       manageTeams: false,
+      createTeams: false,
       manageProjects: false,
     });
     expect(fakeCore.calls("permissionSnapshot")).toBe(2);

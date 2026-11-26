@@ -159,6 +159,7 @@ describe("uprawnienia KivoTasks z migawki MonoriseCore i pamięć podręczna", (
       readIssues: false,
       writeIssues: false,
       manageTeams: false,
+      createTeams: false,
       manageProjects: false,
     });
   });
@@ -179,6 +180,7 @@ describe("uprawnienia KivoTasks z migawki MonoriseCore i pamięć podręczna", (
       readIssues: true,
       writeIssues: true,
       manageTeams: false,
+      createTeams: false,
       manageProjects: false,
     });
 
@@ -229,6 +231,7 @@ describe("uprawnienia KivoTasks z migawki MonoriseCore i pamięć podręczna", (
       readIssues: true,
       writeIssues: true,
       manageTeams: true,
+      createTeams: false,
       manageProjects: true,
     });
 
@@ -236,6 +239,14 @@ describe("uprawnienia KivoTasks z migawki MonoriseCore i pamięć podręczna", (
     const ownerCaller = makeCaller(acme.id, owner.accountId, owner.employeeId);
     expect(await assertPermissionScope(ownerCaller, KIVOTASKS_PERMISSIONS.keys["projects.manage"])).toEqual({
       type: "ORGANIZATION",
+    });
+    expect(await getUserCapabilities(ownerCaller)).toEqual({
+      hasProductAccess: true,
+      readIssues: true,
+      writeIssues: true,
+      manageTeams: true,
+      createTeams: true,
+      manageProjects: true,
     });
   });
 

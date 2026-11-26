@@ -241,6 +241,7 @@ describe("API: sesja, Core SDK, uprawnienia i ochrona CSRF", () => {
         readIssues: true,
         writeIssues: true,
         manageTeams: false,
+        createTeams: false,
         manageProjects: false,
       },
     });
@@ -260,6 +261,7 @@ describe("API: sesja, Core SDK, uprawnienia i ochrona CSRF", () => {
       readIssues: true,
       writeIssues: true,
       manageTeams: true,
+      createTeams: true,
       manageProjects: true,
     });
     expect(fakeCore.calls.permissionSnapshot).toBe(2);
@@ -284,6 +286,7 @@ describe("API: sesja, Core SDK, uprawnienia i ochrona CSRF", () => {
       readIssues: true,
       writeIssues: false,
       manageTeams: false,
+      createTeams: false,
       manageProjects: false,
     });
 
@@ -298,6 +301,7 @@ describe("API: sesja, Core SDK, uprawnienia i ochrona CSRF", () => {
       readIssues: false,
       writeIssues: false,
       manageTeams: false,
+      createTeams: false,
       manageProjects: false,
     });
   });

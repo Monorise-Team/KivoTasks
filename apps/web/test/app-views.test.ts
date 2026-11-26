@@ -29,6 +29,7 @@ describe("stan dostępu do aplikacji na podstawie capabilities", () => {
         readIssues: false,
         writeIssues: false,
         manageTeams: false,
+        createTeams: false,
         manageProjects: false,
       }),
     ).toBe(DEFAULT_NO_ACCESS_MESSAGE);
@@ -41,6 +42,7 @@ describe("stan dostępu do aplikacji na podstawie capabilities", () => {
         readIssues: false,
         writeIssues: false,
         manageTeams: false,
+        createTeams: false,
         manageProjects: false,
       }),
     ).toBe(DEFAULT_NO_ROLE_MESSAGE);
@@ -53,6 +55,7 @@ describe("stan dostępu do aplikacji na podstawie capabilities", () => {
         readIssues: true,
         writeIssues: false,
         manageTeams: false,
+        createTeams: false,
         manageProjects: false,
       }),
     ).toBeNull();
@@ -62,6 +65,7 @@ describe("stan dostępu do aplikacji na podstawie capabilities", () => {
         readIssues: true,
         writeIssues: true,
         manageTeams: true,
+        createTeams: true,
         manageProjects: true,
       }),
     ).toBeNull();
