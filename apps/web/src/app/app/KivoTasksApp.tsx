@@ -1,58 +1,87 @@
 "use client";
 
-import { ApiError, createClient, type Me } from "@kivotasks/client";
-import { Button, Card, EmptyState, ThemeProvider, ToastProvider } from "@monorise-team/ui";
-import { ListTodo, RefreshCw, Users } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-import { AppearanceView } from "./AppearanceView";
-import { KivoTasksShell } from "./KivoTasksShell";
-import { LoadErrorView, LoadingView, NoAccessView, SignedOutView } from "./SignedOutView";
+import { ApiError, createClient, type Me, type Team } from "@kivotasks/client";
+import { ThemeProvider, ToastProvider, TooltipProvider } from "@monorise-team/ui";
+import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AUTH_ERROR_MESSAGES,
-  VIEW_HASHES,
-  parseViewFromHash,
+  canCreateTeams,
+  canManageTeam,
+  canReadIssues,
+  canWriteIssues,
+  formatApiError,
+  parseAppRoute,
   resolveAccessDenialMessage,
-  type AppView,
 } from "./app-views";
-
-function subscribeHash(onStoreChange: () => void): () => void {
-  window.addEventListener("hashchange", onStoreChange);
-  window.addEventListener("popstate", onStoreChange);
-  return () => {
-    window.removeEventListener("hashchange", onStoreChange);
-    window.removeEventListener("popstate", onStoreChange);
-  };
-}
-
-function getHashSnapshot(): string {
-  return window.location.hash;
-}
-
-function getServerHashSnapshot(): string {
-  return "";
-}
+import { CreateIssueDialog } from "./components/CreateIssueDialog";
+import { KivoTasksContext, type CreateIssueDefaults, type KivoTasksContextValue } from "./KivoTasksContext";
+import { KivoTasksShell } from "./KivoTasksShell";
+import { LoadErrorView, LoadingView, NoAccessView, SignedOutView } from "./SignedOutView";
 
 /** Aplikacja KivoTasks w przeglądarce: sesja BFF w ciasteczku HttpOnly i wspólne API `/api/v1`. */
-export function KivoTasksApp() {
+export function KivoTasksApp({ children }: { children?: ReactNode }) {
   return (
     <ThemeProvider>
       <ToastProvider>
-        <KivoTasksContent />
+        <TooltipProvider>
+          <KivoTasksContent>{children}</KivoTasksContent>
+        </TooltipProvider>
       </ToastProvider>
     </ThemeProvider>
   );
 }
 
-function KivoTasksContent() {
+function KivoTasksContent({ children }: { children?: ReactNode }) {
   const client = useMemo(() => createClient(), []);
-  const hash = useSyncExternalStore(subscribeHash, getHashSnapshot, getServerHashSnapshot);
+  const pathname = usePathname();
+  const route = useMemo(() => parseAppRoute(pathname), [pathname]);
 
   const [me, setMe] = useState<Me | null>(null);
   const [authState, setAuthState] = useState<"loading" | "signed-out" | "signed-in" | "error">("loading");
   const [authError, setAuthError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [teamsLoading, setTeamsLoading] = useState(false);
+  const [teamsError, setTeamsError] = useState<string | null>(null);
+
+  const [deniedWriteTeamIds, setDeniedWriteTeamIds] = useState<Set<string>>(() => new Set());
+  const [deniedManageTeamIds, setDeniedManageTeamIds] = useState<Set<string>>(() => new Set());
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createDefaults, setCreateDefaults] = useState<CreateIssueDefaults>({});
+  const [activeIssueTeamKey, setActiveIssueTeamKey] = useState<string | null>(null);
+  const [issuesRevision, setIssuesRevision] = useState(0);
+  const [searchFocusHolder, setSearchFocusHolder] = useState<{ fn: (() => void) | null }>({ fn: null });
+
+  const routeTeamKey =
+    route.kind === "team-issues" || route.kind === "team-board" || route.kind === "team-settings"
+      ? route.teamKey
+      : null;
+
+  const loadTeams = useCallback(async () => {
+    setTeamsLoading(true);
+    setTeamsError(null);
+    try {
+      const result = await client.teams.list();
+      setTeams(result.teams);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        setMe(null);
+        setAuthState("signed-out");
+        return;
+      }
+      if (error instanceof ApiError && error.status === 403) {
+        setTeams([]);
+        return;
+      }
+      setTeamsError(formatApiError(error, "Nie udało się pobrać listy zespołów."));
+    } finally {
+      setTeamsLoading(false);
+    }
+  }, [client]);
 
   const reload = useCallback(async () => {
     setAuthState("loading");
@@ -60,35 +89,43 @@ function KivoTasksContent() {
     try {
       const profile = await client.session.me();
       setMe(profile);
+      setDeniedWriteTeamIds(new Set());
+      setDeniedManageTeamIds(new Set());
       setAuthState("signed-in");
+      if (!resolveAccessDenialMessage(profile.capabilities)) {
+        void loadTeams();
+      }
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         setMe(null);
         setAuthState("signed-out");
         return;
       }
-      setAuthError(error instanceof Error ? error.message : "Nie udało się połączyć z serwerem KivoTasks.");
+      setAuthError(formatApiError(error, "Nie udało się połączyć z serwerem KivoTasks."));
       setAuthState("error");
     }
-  }, [client]);
+  }, [client, loadTeams]);
 
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
+  const refreshSession = useCallback(async () => {
     setActionError(null);
     try {
       const profile = await client.session.me();
       setMe(profile);
+      setDeniedWriteTeamIds(new Set());
+      setDeniedManageTeamIds(new Set());
+      if (!resolveAccessDenialMessage(profile.capabilities)) {
+        await loadTeams();
+      }
+      setIssuesRevision((prev) => prev + 1);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         setMe(null);
         setAuthState("signed-out");
         return;
       }
-      setActionError(error instanceof Error ? error.message : "Nie udało się odświeżyć danych.");
-    } finally {
-      setRefreshing(false);
+      setActionError(formatApiError(error, "Nie udało się odświeżyć danych."));
     }
-  }, [client]);
+  }, [client, loadTeams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +135,9 @@ function KivoTasksContent() {
         if (cancelled) return;
         setMe(profile);
         setAuthState("signed-in");
+        if (!resolveAccessDenialMessage(profile.capabilities)) {
+          void loadTeams();
+        }
       },
       (error: unknown) => {
         if (cancelled) return;
@@ -109,20 +149,21 @@ function KivoTasksContent() {
           setAuthState("signed-out");
           return;
         }
-        setAuthError(error instanceof Error ? error.message : "Nie udało się połączyć z serwerem KivoTasks.");
+        setAuthError(formatApiError(error, "Nie udało się połączyć z serwerem KivoTasks."));
         setAuthState("error");
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [client]);
+  }, [client, loadTeams]);
 
-  const handleSignOut = useCallback(async () => {
+  const signOut = useCallback(async () => {
     setBusy(true);
     try {
       await client.session.signOut();
       setMe(null);
+      setTeams([]);
       setActionError(null);
       setAuthState("signed-out");
     } finally {
@@ -130,24 +171,111 @@ function KivoTasksContent() {
     }
   }, [client]);
 
-  const navigateTo = useCallback((view: AppView) => {
-    const nextHash = VIEW_HASHES[view];
-    if (window.location.hash !== nextHash) {
-      window.location.hash = nextHash;
+  const upsertTeam = useCallback((updated: Team) => {
+    setTeams((prev) => {
+      const exists = prev.some((item) => item.id === updated.id);
+      const next = exists ? prev.map((item) => (item.id === updated.id ? updated : item)) : [...prev, updated];
+      return next.sort((a, b) => a.name.localeCompare(b.name, "pl") || a.key.localeCompare(b.key));
+    });
+  }, []);
+
+  const markTeamWriteDenied = useCallback((teamId: string) => {
+    setDeniedWriteTeamIds((prev) => {
+      if (prev.has(teamId)) return prev;
+      const next = new Set(prev);
+      next.add(teamId);
+      return next;
+    });
+  }, []);
+
+  const markTeamManageDenied = useCallback((teamId: string) => {
+    setDeniedManageTeamIds((prev) => {
+      if (prev.has(teamId)) return prev;
+      const next = new Set(prev);
+      next.add(teamId);
+      return next;
+    });
+  }, []);
+
+  const openCreateIssue = useCallback((defaults: CreateIssueDefaults = {}) => {
+    setCreateDefaults(defaults);
+    setCreateOpen(true);
+  }, []);
+
+  const registerSearchFocus = useCallback((focusFn: (() => void) | null) => {
+    setSearchFocusHolder({ fn: focusFn });
+  }, []);
+
+  const focusRegisteredSearch = useCallback(() => {
+    if (searchFocusHolder.fn) {
+      searchFocusHolder.fn();
+      return true;
     }
+    return false;
+  }, [searchFocusHolder]);
+
+  const bumpIssuesRevision = useCallback(() => {
+    setIssuesRevision((prev) => prev + 1);
   }, []);
 
   const dismissActionError = useCallback(() => {
     setActionError(null);
   }, []);
 
-  const handleRefreshClick = useCallback(() => {
-    void handleRefresh();
-  }, [handleRefresh]);
+  const capabilityOverrides = useMemo(
+    () => ({ deniedWriteTeamIds, deniedManageTeamIds }),
+    [deniedWriteTeamIds, deniedManageTeamIds],
+  );
 
-  const handleSignOutClick = useCallback(() => {
-    void handleSignOut();
-  }, [handleSignOut]);
+  const currentTeamKey = routeTeamKey ?? (route.kind === "issue-detail" ? activeIssueTeamKey : null);
+
+  const contextValue = useMemo<KivoTasksContextValue | null>(() => {
+    if (!me) return null;
+    return {
+      client,
+      me,
+      teams,
+      teamsLoading,
+      teamsError,
+      currentTeamKey,
+      capabilityOverrides,
+      issuesRevision,
+      busy,
+      canRead: canReadIssues(me.capabilities),
+      canWriteTeam: (teamId) => canWriteIssues(me.capabilities, teamId, capabilityOverrides),
+      canManageTeamById: (teamId) => canManageTeam(me.capabilities, teamId, capabilityOverrides),
+      canCreateTeam: canCreateTeams(me.capabilities),
+      markTeamWriteDenied,
+      markTeamManageDenied,
+      reloadTeams: loadTeams,
+      upsertTeam,
+      openCreateIssue,
+      setActiveIssueTeamKey,
+      registerSearchFocus,
+      bumpIssuesRevision,
+      refreshSession,
+      signOut,
+    };
+  }, [
+    client,
+    me,
+    teams,
+    teamsLoading,
+    teamsError,
+    currentTeamKey,
+    capabilityOverrides,
+    issuesRevision,
+    busy,
+    markTeamWriteDenied,
+    markTeamManageDenied,
+    loadTeams,
+    upsertTeam,
+    openCreateIssue,
+    registerSearchFocus,
+    bumpIssuesRevision,
+    refreshSession,
+    signOut,
+  ]);
 
   if (authState === "loading") {
     return <LoadingView />;
@@ -157,7 +285,7 @@ function KivoTasksContent() {
     return <SignedOutView authError={authError} />;
   }
 
-  if (authState === "error" || !me) {
+  if (authState === "error" || !me || !contextValue) {
     return <LoadErrorView error={authError} onRetry={() => void reload()} />;
   }
 
@@ -169,86 +297,21 @@ function KivoTasksContent() {
         message={accessDenialMessage}
         busy={busy}
         onRetry={() => void reload()}
-        onSignOut={() => void handleSignOut()}
+        onSignOut={() => void signOut()}
       />
     );
   }
 
-  const activeView = parseViewFromHash(hash);
-
   return (
-    <KivoTasksShell
-      organizationName={me.organization.name}
-      personName={me.employee.fullName}
-      view={activeView}
-      busy={busy}
-      actionError={actionError}
-      onDismissActionError={dismissActionError}
-      onNavigate={navigateTo}
-      onRefresh={handleRefreshClick}
-      onSignOut={handleSignOutClick}
-    >
-      {activeView === "appearance" ? (
-        <AppearanceView />
-      ) : activeView === "teams" ? (
-        <StageEmptyView
-          title="Zespoły"
-          icon={<Users aria-hidden />}
-          emptyTitle="Zespoły pojawią się w etapie 1"
-          emptyDescription="Zespoły korzystają z jednostek firmy w MonoriseCore i otrzymają krótkie klucze do numeracji zadań w etapie 1."
-          busy={busy}
-          refreshing={refreshing}
-          onRefresh={handleRefreshClick}
-        />
-      ) : (
-        <StageEmptyView
-          title="Moje zadania"
-          icon={<ListTodo aria-hidden />}
-          emptyTitle="Zadania pojawią się w etapie 1"
-          emptyDescription="W etapie 0 działa logowanie kontem Monorise, sprawdzanie uprawnień oraz nawigacja z paletą poleceń. Zadania i tablica pojawią się w etapie 1."
-          busy={busy}
-          refreshing={refreshing}
-          onRefresh={handleRefreshClick}
-        />
-      )}
-    </KivoTasksShell>
-  );
-}
-
-function StageEmptyView({
-  title,
-  icon,
-  emptyTitle,
-  emptyDescription,
-  busy,
-  refreshing,
-  onRefresh,
-}: {
-  title: string;
-  icon: ReactNode;
-  emptyTitle: string;
-  emptyDescription: string;
-  busy: boolean;
-  refreshing: boolean;
-  onRefresh: () => void;
-}) {
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold text-text-primary">{title}</h1>
-        <Button
-          variant="secondary"
-          size="sm"
-          icon={<RefreshCw aria-hidden />}
-          onClick={onRefresh}
-          disabled={busy || refreshing}
-        >
-          {refreshing ? "Odświeżanie…" : "Odśwież"}
-        </Button>
-      </div>
-      <Card surface="middle" className="p-6">
-        <EmptyState icon={icon} title={emptyTitle} description={emptyDescription} />
-      </Card>
-    </div>
+    <KivoTasksContext.Provider value={contextValue}>
+      <KivoTasksShell
+        actionError={actionError}
+        onDismissActionError={dismissActionError}
+        onFocusSearch={focusRegisteredSearch}
+      >
+        {children}
+      </KivoTasksShell>
+      <CreateIssueDialog open={createOpen} onOpenChange={setCreateOpen} defaults={createDefaults} />
+    </KivoTasksContext.Provider>
   );
 }
