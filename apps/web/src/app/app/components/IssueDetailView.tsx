@@ -378,7 +378,7 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
     }
     const parsed = Number(trimmed);
     if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
-      setActionError("Wycena musi być liczbą całkowitą od 0 do 100.");
+      setActionError("Szacunek musi być liczbą całkowitą od 0 do 100.");
       setEstimateDraft(issue.estimate !== null ? String(issue.estimate) : "");
       return;
     }
@@ -1075,11 +1075,11 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
             {overdue ? <p className="text-xs text-danger">Termin realizacji już minął.</p> : null}
           </div>
 
-          {/* Wycena */}
+          {/* Szacunek */}
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between gap-2">
               <label htmlFor="detail-estimate" className="text-sm text-text-secondary">
-                Wycena (od 0 do 100)
+                Szacunek (od 0 do 100)
               </label>
               {canWrite && issue.estimate !== null ? (
                 <Button
