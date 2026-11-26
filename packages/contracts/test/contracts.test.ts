@@ -1,0 +1,184 @@
+import { permissionKeySchema, permissionManifestSchema } from "@monorise-team/permissions";
+import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import {
+  ApiErrorResponse,
+  apiSuccessSchema,
+  ERROR_CODES,
+  Health,
+  Me,
+  resolveEntriesRange,
+  StartTimeEntryInput,
+  TeamCurrentList,
+  TeamTimeEntriesList,
+  TIME_ENTRY_KINDS,
+  KIVOTASKS_PERMISSION_MANIFEST,
+  KIVOTASKS_PERMISSIONS,
+  KIVOTASKS_ROLE_TEMPLATES,
+  TimeEntriesQuery,
+} from "../src/index.js";
+
+/** Minimalny schemat żądania `PUT /core/v1/products/{productKey}/role-templates` zgodny z MonoriseCore. */
+const CoreRoleTemplateKey = z.string().regex(/^[a-z][a-z0-9]*(\.[a-z][a-z0-9_]*)+$/);
+const CoreRoleTemplateEntry = z.object({
+  key: CoreRoleTemplateKey,
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().min(1).max(500).nullable().optional(),
+  permissions: z
+    .array(permissionKeySchema)
+    .min(1)
+    .max(200)
+    .refine((keys) => new Set(keys).size === keys.length, "Zduplikowane klucze uprawnień w roli"),
+});
+const CoreRegisterRoleTemplatesRequest = z
+  .array(CoreRoleTemplateEntry)
+  .max(100)
+  .refine((entries) => new Set(entries.map((entry) => entry.key)).size === entries.length, "Zduplikowane klucze ról");
+
+describe("manifest uprawnień KivoTasks", () => {
+  it("spełnia schemat manifestu z @monorise-team/permissions", () => {
+    const parsed = permissionManifestSchema.parse(KIVOTASKS_PERMISSION_MANIFEST);
+    expect(parsed).toHaveLength(6);
+    expect(KIVOTASKS_PERMISSIONS.product).toBe("kivotasks");
+  });
+
+  it("zawiera wszystkie uprawnienia z karty produktu i opisy po polsku", () => {
+    expect(Object.values(KIVOTASKS_PERMISSIONS.keys)).toEqual([
+      "kivotasks.entries.read_own",
+      "kivotasks.entries.write_own",
+      "kivotasks.entries.read",
+      "kivotasks.entries.approve",
+      "kivotasks.leave.approve",
+      "kivotasks.reports.export",
+    ]);
+    for (const entry of KIVOTASKS_PERMISSION_MANIFEST) {
+      expect(entry.key.startsWith("kivotasks.")).toBe(true);
+      expect(entry.description.length).toBeGreaterThan(10);
+    }
+  });
+});
+
+describe("gotowe role (szablony) KivoTasks", () => {
+  it("spełniają schemat żądania MonoriseCore i mają prefiks kivotasks.", () => {
+    const parsed = CoreRegisterRoleTemplatesRequest.parse(KIVOTASKS_ROLE_TEMPLATES);
+    expect(parsed).toHaveLength(2);
+    for (const template of parsed) {
+      expect(template.key.startsWith("kivotasks.")).toBe(true);
+    }
+  });
+
+  it("odwołują się wyłącznie do uprawnień z manifestu KivoTasks", () => {
+    const manifestKeys = new Set<string>(KIVOTASKS_PERMISSION_MANIFEST.map((entry) => entry.key));
+    for (const template of KIVOTASKS_ROLE_TEMPLATES) {
+      for (const permission of template.permissions) {
+        expect(manifestKeys.has(permission)).toBe(true);
+      }
+    }
+  });
+
+  it("definiują role Pracownik i Kierownik z oczekiwanym zakresem uprawnień", () => {
+    const byKey = new Map<string, (typeof KIVOTASKS_ROLE_TEMPLATES)[number]>(
+      KIVOTASKS_ROLE_TEMPLATES.map((template) => [template.key, template]),
+    );
+
+    expect(byKey.get("kivotasks.employee")).toEqual({
+      key: "kivotasks.employee",
+      name: "Pracownik",
+      description: "Rejestruje i przegląda własny czas pracy",
+      permissions: ["kivotasks.entries.read_own", "kivotasks.entries.write_own"],
+    });
+
+    expect(byKey.get("kivotasks.manager")).toEqual({
+      key: "kivotasks.manager",
+      name: "Kierownik",
+      description: "Przegląda i zatwierdza czas pracy, urlopy i raporty zespołu w swoim zakresie",
+      permissions: [
+        "kivotasks.entries.read_own",
+        "kivotasks.entries.write_own",
+        "kivotasks.entries.read",
+        "kivotasks.entries.approve",
+        "kivotasks.leave.approve",
+        "kivotasks.reports.export",
+      ],
+    });
+  });
+});
+
+describe("schematy czasu pracy", () => {
+  it("przyjmuje wszystkie rodzaje wpisu i przycina notatkę", () => {
+    for (const kind of TIME_ENTRY_KINDS) {
+      expect(StartTimeEntryInput.parse({ kind, note: "  Spotkanie  " })).toEqual({ kind, note: "Spotkanie" });
+    }
+    expect(StartTimeEntryInput.parse({ kind: "WORK", note: "   " })).toEqual({ kind: "WORK", note: undefined });
+  });
+
+  it("odrzuca nieznany rodzaj wpisu i zbyt długą notatkę", () => {
+    expect(StartTimeEntryInput.safeParse({ kind: "VACATION" }).success).toBe(false);
+    expect(StartTimeEntryInput.safeParse({ kind: "WORK", note: "a".repeat(501) }).success).toBe(false);
+  });
+
+  it("domyślny zakres wpisów to dzisiejszy dzień w UTC", () => {
+    const now = new Date("2026-11-24T14:20:00.000Z");
+    const range = resolveEntriesRange({}, now);
+    expect(range.from.toISOString()).toBe("2026-11-24T00:00:00.000Z");
+    expect(range.to.toISOString()).toBe("2026-11-24T23:59:59.999Z");
+  });
+
+  it("odrzuca zakres dłuższy niż 31 dni, odwrócony albo niepoprawne daty", () => {
+    expect(TimeEntriesQuery.safeParse({ from: "2026-11-01", to: "2026-11-30" }).success).toBe(true);
+    expect(TimeEntriesQuery.safeParse({ from: "2026-11-01", to: "2026-12-03" }).success).toBe(false);
+    expect(TimeEntriesQuery.safeParse({ from: "2026-11-24", to: "2026-11-20" }).success).toBe(false);
+    expect(TimeEntriesQuery.safeParse({ from: "2026-02-31", to: "2026-03-01" }).success).toBe(false);
+    expect(TimeEntriesQuery.safeParse({ from: "nie-data" }).success).toBe(false);
+  });
+
+  it("waliduje capabilities w Me oraz listy wpisów zespołu z pracownikiem", () => {
+    const meParsed = Me.parse({
+      account: { id: "acc-1", email: "jan@acme.test" },
+      employee: { id: "emp-1", firstName: "Jan", lastName: "Nowak", fullName: "Jan Nowak", jobTitle: null },
+      organization: { id: "org-1", name: "Acme" },
+      capabilities: { trackOwnTime: true, viewTeam: true },
+    });
+    expect(meParsed.capabilities).toEqual({ trackOwnTime: true, viewTeam: true });
+
+    const teamEntry = {
+      id: "entry-1",
+      organizationId: "org-1",
+      accountId: "acc-2",
+      employeeId: "emp-2",
+      kind: "WORK",
+      startedAt: "2026-11-24T08:00:00.000Z",
+      endedAt: null,
+      note: null,
+      createdAt: "2026-11-24T08:00:00.000Z",
+      updatedAt: "2026-11-24T08:00:00.000Z",
+      employee: { id: "emp-2", firstName: "Anna", lastName: "Nowak" },
+    };
+    expect(TeamCurrentList.parse({ entries: [teamEntry] }).entries).toHaveLength(1);
+    expect(
+      TeamTimeEntriesList.parse({
+        entries: [teamEntry],
+        from: "2026-11-24T00:00:00.000Z",
+        to: "2026-11-24T23:59:59.999Z",
+      }).entries[0]?.employee.firstName,
+    ).toBe("Anna");
+  });
+
+  it("zawiera PRODUCT_ACCESS_REQUIRED oraz waliduje koperty sukcesu i błędu", () => {
+    expect(ERROR_CODES).toContain("PRODUCT_ACCESS_REQUIRED");
+    expect(
+      ApiErrorResponse.parse({
+        data: null,
+        meta: { requestId: "req_123" },
+        error: { code: "PRODUCT_ACCESS_REQUIRED", message: "Brak dostępu", details: [] },
+      }).error.code,
+    ).toBe("PRODUCT_ACCESS_REQUIRED");
+
+    const healthEnvelope = apiSuccessSchema(Health).parse({
+      data: { status: "ok", version: "0.0.0" },
+      meta: { requestId: "req_123" },
+      error: null,
+    });
+    expect(healthEnvelope.data.status).toBe("ok");
+  });
+});
