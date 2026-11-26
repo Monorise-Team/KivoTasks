@@ -19,6 +19,8 @@ import { getMachineCoreClient } from "./core";
 export const PRODUCT_ACCESS_REQUIRED_MESSAGE =
   "KivoTasks nie jest włączony dla Twojego konta. Poproś Ownera firmy o dostęp.";
 
+export const PERMISSION_DENIED_MESSAGE = "Brak uprawnienia do tej operacji";
+
 type PermissionCache = ReturnType<typeof createPermissionCache>;
 
 /**
@@ -62,11 +64,14 @@ export function assertProductAccess(snapshot: PermissionSnapshot): void {
  * Wylicza możliwości widoczne w interfejsie KivoTasks na podstawie migawki uprawnień z Core.
  */
 export function capabilitiesFromSnapshot(snapshot: PermissionSnapshot): Capabilities {
+  const manageTeamsScope = scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["teams.manage"]);
+  const canWriteIssues = can(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.write"]);
   return {
     hasProductAccess: snapshot.products.includes(KIVOTASKS_PERMISSIONS.product),
-    readIssues: can(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.read"]),
-    writeIssues: can(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.write"]),
+    readIssues: can(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.read"]) || canWriteIssues,
+    writeIssues: canWriteIssues,
     manageTeams: can(snapshot, KIVOTASKS_PERMISSIONS.keys["teams.manage"]),
+    createTeams: manageTeamsScope.type === "ORGANIZATION",
     manageProjects: can(snapshot, KIVOTASKS_PERMISSIONS.keys["projects.manage"]),
   };
 }
@@ -89,7 +94,7 @@ export async function assertPermission(
   const snapshot = await getPermissionSnapshot(caller);
   assertProductAccess(snapshot);
   if (!can(snapshot, permission)) {
-    throw new ApiFailure(403, "PERMISSION_DENIED", "Brak uprawnienia do tej operacji");
+    throw new ApiFailure(403, "PERMISSION_DENIED", PERMISSION_DENIED_MESSAGE);
   }
   return snapshot;
 }
@@ -106,7 +111,133 @@ export async function assertPermissionScope(
   assertProductAccess(snapshot);
   const scope = scopeOf(snapshot, permission);
   if (scope.type === "NONE") {
-    throw new ApiFailure(403, "PERMISSION_DENIED", "Brak uprawnienia do tej operacji");
+    throw new ApiFailure(403, "PERMISSION_DENIED", PERMISSION_DENIED_MESSAGE);
   }
   return scope;
+}
+
+/**
+ * Zwraca `true`, gdy efektywny zakres uprawnienia (z rozwiniętymi poddrzewami jednostek z Core)
+ * obejmuje wskazany zespół (`unitId`).
+ */
+export function scopeCoversTeam(scope: AccessScope, teamId: string): boolean {
+  if (scope.type === "ORGANIZATION") return true;
+  if (scope.type === "LIMITED") return scope.unitIds.includes(teamId);
+  return false;
+}
+
+/** Zwraca `true`, jeśli konto ma co najmniej jedno aktywne uprawnienie KivoTasks (albo jest Ownerem). */
+export function hasAnyKivotasksPermission(snapshot: PermissionSnapshot): boolean {
+  return (
+    can(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.read"]) ||
+    can(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.write"]) ||
+    can(snapshot, KIVOTASKS_PERMISSIONS.keys["teams.manage"]) ||
+    can(snapshot, KIVOTASKS_PERMISSIONS.keys["projects.manage"])
+  );
+}
+
+/**
+ * Wymaga dostępu do produktu (`403 PRODUCT_ACCESS_REQUIRED`) i co najmniej jednego uprawnienia KivoTasks
+ * (`403 PERMISSION_DENIED`), zanim trasa odwoła się do konkretnego zespołu lub zadania (ADR-0046).
+ */
+export async function requireAuthorizedSnapshot(caller: Caller): Promise<PermissionSnapshot> {
+  const snapshot = await getPermissionSnapshot(caller);
+  assertProductAccess(snapshot);
+  if (!hasAnyKivotasksPermission(snapshot)) {
+    throw new ApiFailure(403, "PERMISSION_DENIED", PERMISSION_DENIED_MESSAGE);
+  }
+  return snapshot;
+}
+
+export type TeamFilterScope = "ALL" | string[];
+
+/** Zamienia efektywny zakres uprawnienia na filtr `teamId` (`"ALL"` albo lista UUID zespołów). */
+export function teamFilterFromScope(scope: AccessScope): TeamFilterScope {
+  if (scope.type === "ORGANIZATION") return "ALL";
+  if (scope.type === "LIMITED") return [...scope.unitIds];
+  return [];
+}
+
+/** Suma dwóch filtrów zespołów (np. `issues.read` i `issues.write`, bo zapis też daje wgląd w zadanie). */
+export function mergeTeamFilters(a: TeamFilterScope, b: TeamFilterScope): TeamFilterScope {
+  if (a === "ALL" || b === "ALL") return "ALL";
+  return [...new Set([...a, ...b])];
+}
+
+/**
+ * Zwraca filtr zespołów, których zadania osoba może widzieć (`issues.read` lub `issues.write`).
+ * Jedno źródło prawdy dla widoczności zadań i zespołów z tytułu pracy na zadaniach.
+ */
+export function readableIssueTeamsFilter(snapshot: PermissionSnapshot): TeamFilterScope {
+  return mergeTeamFilters(
+    teamFilterFromScope(scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.read"])),
+    teamFilterFromScope(scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.write"])),
+  );
+}
+
+/** Zwraca `true`, gdy osoba ma `issues.read` lub `issues.write` na tym zespole. */
+export function canReadTeamIssues(snapshot: PermissionSnapshot, teamId: string): boolean {
+  const filter = readableIssueTeamsFilter(snapshot);
+  return filter === "ALL" || filter.includes(teamId);
+}
+
+/** Zwraca `true`, gdy osoba ma prawo widzieć zespół (`issues.read`, `issues.write` albo `teams.manage` na tym zespole). */
+export function canReadTeam(snapshot: PermissionSnapshot, teamId: string): boolean {
+  return canReadTeamIssues(snapshot, teamId) || canManageTeam(snapshot, teamId);
+}
+
+/** Zwraca `true`, gdy osoba ma `issues.write` na tym zespole. */
+export function canWriteTeamIssues(snapshot: PermissionSnapshot, teamId: string): boolean {
+  return scopeCoversTeam(scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.write"]), teamId);
+}
+
+/** Zwraca `true`, gdy osoba ma `teams.manage` na tym zespole. */
+export function canManageTeam(snapshot: PermissionSnapshot, teamId: string): boolean {
+  return scopeCoversTeam(scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["teams.manage"]), teamId);
+}
+
+/**
+ * Zwraca zbiór zespołów, których zadania osoba może odczytywać (`issues.read` lub `issues.write`).
+ * Zwraca `403 PERMISSION_DENIED` wyłącznie wtedy, gdy oba uprawnienia mają zakres `NONE`.
+ */
+export async function resolveReadableIssuesFilter(caller: Caller): Promise<TeamFilterScope> {
+  const snapshot = await getPermissionSnapshot(caller);
+  assertProductAccess(snapshot);
+  const readScope = scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.read"]);
+  const writeScope = scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.write"]);
+  if (readScope.type === "NONE" && writeScope.type === "NONE") {
+    throw new ApiFailure(403, "PERMISSION_DENIED", PERMISSION_DENIED_MESSAGE);
+  }
+  return readableIssueTeamsFilter(snapshot);
+}
+
+/**
+ * Zwraca zbiór zespołów widocznych na liście `GET /api/v1/teams` (`issues.read`, `issues.write` lub `teams.manage`).
+ * Brak któregokolwiek z tych uprawnień daje `403 PERMISSION_DENIED`.
+ */
+export async function resolveReadableTeamsFilter(caller: Caller): Promise<TeamFilterScope> {
+  const snapshot = await getPermissionSnapshot(caller);
+  assertProductAccess(snapshot);
+  const readScope = scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.read"]);
+  const writeScope = scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.write"]);
+  const manageScope = scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["teams.manage"]);
+  if (readScope.type === "NONE" && writeScope.type === "NONE" && manageScope.type === "NONE") {
+    throw new ApiFailure(403, "PERMISSION_DENIED", PERMISSION_DENIED_MESSAGE);
+  }
+  return mergeTeamFilters(readableIssueTeamsFilter(snapshot), teamFilterFromScope(manageScope));
+}
+
+/** Wymaga `kivotasks.teams.manage` w zakresie całej firmy (`ORGANIZATION`, obejmuje również Ownera). */
+export async function assertOrgTeamManagePermission(caller: Caller): Promise<PermissionSnapshot> {
+  const snapshot = await getPermissionSnapshot(caller);
+  assertProductAccess(snapshot);
+  const scope = scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["teams.manage"]);
+  if (scope.type !== "ORGANIZATION") {
+    throw new ApiFailure(
+      403,
+      "PERMISSION_DENIED",
+      "Tworzenie zespołu z jednostki firmy wymaga uprawnienia zarządzania zespołami w całej firmie",
+    );
+  }
+  return snapshot;
 }

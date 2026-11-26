@@ -16,7 +16,9 @@ Zadania i projekty Monorise w przeglądarce, wzorowane zakresem funkcji na Linea
 Pierwsza wersja KivoTasks powstaje w pięciu etapach opisanych w karcie produktu (ADR-0103):
 
 - **Etap 0 (szkielet, gotowy):** układ repozytorium, logowanie przez MonoriseCore (BFF), `GET /api/v1/me` z `capabilities`, rejestracja uprawnień `kivotasks.*` i gotowych ról w Core, sprawdzanie dostępu (`Entitlement` i `AppAccess`), kanał zdarzeń Core (ADR-0100), powłoka aplikacji z paskiem bocznym, paletą `⌘K` i skrótami klawiszowymi z `@monorise-team/ui`, opis OpenAPI 3.1 oraz testy kontraktu i izolacji firm.
-- **Etap 1 (zadania, przed nami):** zespoły z krótkimi kluczami, zadania (statusy, priorytety, przypisania, etykiety, terminy, szacunki), podzadania, relacje, widoki listy i tablicy, wyszukiwanie.
+- **Etap 1 (zadania, w toku):**
+  - **Etap 1a (model danych i API, gotowy):** zespoły oparte na jednostkach Core z krótkimi kluczami, domyślne i edytowalne statusy obiegu, etykiety zespołów, zadania z atomową numeracją (`KEY-number`), priorytetami, przypisaniem członków zespołu, podzadaniami bez cykli, relacjami (`BLOCKS`/`BLOCKED_BY`, `RELATED`, `DUPLICATE`), stronicowaniem kursorowym, filtrami, sortowaniem i wyszukiwaniem pełnotekstowym (`tsvector` + GIN) z RLS na wszystkich tabelach.
+  - **Etap 1b (interfejs, przed nami):** widoki listy i tablicy, szczegóły zadania, zarządzanie zespołami i akcje w palecie `⌘K`.
 - **Etap 2 (współpraca):** komentarze, historia zmian, załączniki, skrzynka powiadomień.
 - **Etap 3 (planowanie):** projekty ponad zespołami, cykle, triage, własne widoki, oś czasu.
 - **Etap 4 (przegląd):** mapy drogowe, inicjatywy, statystyki, szablony zadań, SLA, archiwum, import i integracje.
@@ -77,7 +79,7 @@ Następnie w Core API (`http://localhost:3200/core/v1`, z tokenem Ownera firmy) 
 ### Kanał zdarzeń Core i baza danych
 
 - **Kanał zdarzeń Core (ADR-0100):** `apps/web/src/instrumentation.ts` uruchamia odpytywanie `GET /core/v1/products/kivotasks/events` (`KIVOTASKS_EVENT_FEED_INTERVAL_MS`, domyślnie `5000` ms w `development`, `0` poza nim). Zdarzenie `organization.permissions.changed` natychmiast unieważnia pamięć podręczną uprawnień dla wskazanej firmy i konta.
-- **Baza danych:** PostgreSQL na porcie `5436` (kontener `kivo-tasks-postgres-1`). W etapie 0 baza zawiera tabele `auth.sessions`, `public.event_feed_cursors`, `public.processed_events`, uprawnienia roli `kivo_tasks_app` oraz funkcje pomocnicze RLS (`public.current_organization_id()`, `public.current_account_id()`). Każda tabela domenowa z danymi osób albo firm od etapu 1 otrzymuje RLS (`ENABLE` + `FORCE`) oraz test separacji firm.
+- **Baza danych:** PostgreSQL na porcie `5436` (kontener `kivo-tasks-postgres-1`). Zawiera tabele techniczne (`auth.sessions`, `public.event_feed_cursors`, `public.processed_events`), funkcje pomocnicze RLS (`public.current_organization_id()`, `public.current_account_id()`) oraz tabele domenowe etapu 1a (`teams`, `workflow_states`, `labels`, `issues`, `issue_labels`, `issue_relations`) z wymuszonym RLS (`ENABLE` + `FORCE`) i testami separacji firm.
 
 ## Polecenia i kontrole
 

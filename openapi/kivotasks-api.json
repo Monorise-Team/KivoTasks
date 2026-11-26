@@ -3,7 +3,7 @@
   "info": {
     "title": "KivoTasks API",
     "version": "0.0.0",
-    "summary": "API produktu KivoTasks (zadania i projekty Monorise): stan usługi oraz sesja przeglądarki.",
+    "summary": "API produktu KivoTasks (zadania i projekty Monorise): zespoły, obiegi statusów, etykiety, zadania i wyszukiwanie.",
     "description": "Opis API KivoTasks (`/api/v1/*`) wygenerowany automatycznie z kodu (katalog ścieżek i schematy Zod). Wszystkie odpowiedzi ustawiają nagłówek `Cache-Control: no-store` i używają koperty `{ data, meta, error }` (ADR-0044). Tożsamość osoby i firmy zawsze wynika z tokenu albo sesji MonoriseCore (ADR-0037).",
     "license": {
       "name": "Proprietary, all rights reserved",
@@ -28,6 +28,26 @@
     {
       "name": "Session",
       "description": "Dane zalogowanej osoby, firmy i możliwości widoczne w przeglądarce (BFF)."
+    },
+    {
+      "name": "Teams",
+      "description": "Zespoły oparte na jednostkach organizacyjnych MonoriseCore i ich członkowie."
+    },
+    {
+      "name": "States",
+      "description": "Statusy obiegu zadań przypisane do zespołu."
+    },
+    {
+      "name": "Labels",
+      "description": "Etykiety zadań przypisane do zespołu."
+    },
+    {
+      "name": "Issues",
+      "description": "Zadania, podzadania oraz relacje między zadaniami."
+    },
+    {
+      "name": "Search",
+      "description": "Szybkie wyszukiwanie zadań po identyfikatorze i treści."
     }
   ],
   "paths": {
@@ -52,6 +72,892 @@
           },
           "500": {
             "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/issues": {
+      "get": {
+        "tags": [
+          "Issues"
+        ],
+        "operationId": "listIssues",
+        "summary": "Lista zadań z filtrami, sortowaniem i stronicowaniem kursorowym",
+        "description": "Zwraca stronę zadań wyłącznie z zespołów objętych uprawnieniem `kivotasks.issues.read`. Domyślnie ukrywa zadania ze statusami kategorii `COMPLETED` i `CANCELED` (chyba że podano `includeCompleted=true`, `stateId` lub odpowiadające `stateCategory`). Stronicowanie kursorowe przez `limit` (1-100) i `meta.nextCursor`.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "query",
+            "required": false,
+            "description": "Filtr po identyfikatorze zespołu (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "stateId",
+            "in": "query",
+            "required": false,
+            "description": "Filtr po identyfikatorze statusu obiegu (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "stateCategory",
+            "in": "query",
+            "required": false,
+            "description": "Filtr po kategorii statusu (`BACKLOG`, `UNSTARTED`, `STARTED`, `COMPLETED`, `CANCELED`).",
+            "schema": {
+              "$ref": "#/components/schemas/WorkflowStateCategory"
+            }
+          },
+          {
+            "name": "assignee",
+            "in": "query",
+            "required": false,
+            "description": "Filtr przypisania: `me`, `none` albo UUID konta osoby.",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "me"
+                },
+                {
+                  "type": "string",
+                  "const": "none"
+                },
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              ]
+            }
+          },
+          {
+            "name": "labelId",
+            "in": "query",
+            "required": false,
+            "description": "Filtr po identyfikatorze etykiety (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "priority",
+            "in": "query",
+            "required": false,
+            "description": "Filtr po priorytecie (0 brak, 1 pilny, 2 wysoki, 3 średni, 4 niski).",
+            "schema": {
+              "$ref": "#/components/schemas/IssuePriority"
+            }
+          },
+          {
+            "name": "parentId",
+            "in": "query",
+            "required": false,
+            "description": "Filtr po zadaniu nadrzędnym (`none` dla zadań głównych albo UUID rodzica).",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "const": "none"
+                },
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Fraza wyszukiwania pełnotekstowego lub dokładny identyfikator zadania (np. `MAG-12`).",
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "includeCompleted",
+            "in": "query",
+            "required": false,
+            "description": "Czy dołączyć zadania ze statusami `COMPLETED` i `CANCELED` (`true` albo `false`, domyślnie `false`).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "description": "Sortowanie wyników: `priority`, `updated` (domyślnie), `created`, `dueDate` albo `manual`.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "priority",
+                "updated",
+                "created",
+                "dueDate",
+                "manual"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Liczba zadań na stronie (1-100, domyślnie 50).",
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Nieprzezroczysty kursor następnej strony z pola `meta.nextCursor`.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strona listy zadań oraz kursor `meta.nextCursor`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Issues"
+        ],
+        "operationId": "createIssue",
+        "summary": "Utworzenie zadania",
+        "description": "Tworzy zadanie w zespole z atomowo przydzielonym numerem (`KEY-number`). Wymaga `kivotasks.issues.write` dla zespołu (zespoły spoza zasięgu odczytu zwracają `404 NOT_FOUND` przed `403`). Domyślny status to pierwszy `BACKLOG`, w przeciwnym razie pierwszy `UNSTARTED`. Osoba przypisana musi być członkiem zespołu z aktywnym kontem.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Dane nowego zadania.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateIssueInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Utworzone zadanie ze szczegółami.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/issues/{issueId}": {
+      "get": {
+        "tags": [
+          "Issues"
+        ],
+        "operationId": "getIssue",
+        "summary": "Szczegóły zadania po UUID lub identyfikatorze",
+        "description": "Pobiera zadanie po UUID albo identyfikatorze (np. `MAG-12`, bez rozróżniania wielkości liter). Dołącza etykiety, skrót zadania nadrzędnego, podzadania oraz relacje w obie strony (`BLOCKED_BY` jako odwrotny widok `BLOCKS`).",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "UUID zadania albo identyfikator zespołu z numerem (np. `MAG-12`, bez rozróżniania wielkości liter).",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Szczegóły zadania.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Issues"
+        ],
+        "operationId": "updateIssue",
+        "summary": "Częściowa aktualizacja zadania",
+        "description": "Aktualizuje wybrane pola zadania oraz kolejność `sortOrder` (`kivotasks.issues.write` dla zespołu). Automatycznie ustawia albo czyści `startedAt`, `completedAt` i `canceledAt` przy zmianie kategorii statusu. Przenoszenie zadania między zespołami zwraca `422 VALIDATION_FAILED`, a cykl w hierarchii `parentId` zwraca `409 CONFLICT`.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zadania (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Pola zadania do aktualizacji.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateIssueInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Zaktualizowane zadanie.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Issues"
+        ],
+        "operationId": "deleteIssue",
+        "summary": "Miękkie usunięcie zadania",
+        "description": "Ustawia `deletedAt` na zadaniu, ukrywając je z list i wyszukiwania (`kivotasks.issues.write`).",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zadania (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Zadanie zostało oznaczone jako usunięte."
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/issues/{issueId}/relations": {
+      "post": {
+        "tags": [
+          "Issues"
+        ],
+        "operationId": "createIssueRelation",
+        "summary": "Dodanie relacji między zadaniami",
+        "description": "Tworzy relację (`BLOCKS`, `BLOCKED_BY`, `RELATED`, `DUPLICATE`) między dwoma zadaniami w obrębie firmy. Dla relacji między zespołami wymaga `kivotasks.issues.write` obejmującego oba zespoły.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zadania (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Powiązane zadanie i typ relacji.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateIssueRelationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Utworzona relacja z perspektywy wskazanego zadania.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueRelationViewResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/issues/{issueId}/relations/{relationId}": {
+      "delete": {
+        "tags": [
+          "Issues"
+        ],
+        "operationId": "deleteIssueRelation",
+        "summary": "Usunięcie relacji między zadaniami",
+        "description": "Usuwa relację między zadaniami. Wymaga `kivotasks.issues.write` dla obu zespołów objętych relacją.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zadania (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "relationId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator relacji między zadaniami (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Relacja została usunięta."
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -99,6 +1005,1498 @@
           },
           "403": {
             "description": "Brak dostępu do produktu albo brak uprawnienia (PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/search": {
+      "get": {
+        "tags": [
+          "Search"
+        ],
+        "operationId": "searchIssues",
+        "summary": "Wyszukiwanie zadań w dostępnych zespołach",
+        "description": "Zwraca do 20 zadań z zespołów objętych `kivotasks.issues.read`. Dokładne dopasowanie identyfikatora (np. `MAG-12`) zawsze trafia na pierwsze miejsce, a za nim dopasowania pełnotekstowe z wagą tytułu przed opisem.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Zapytanie wyszukiwania (identyfikator np. `MAG-12` albo słowa kluczowe z tytułu i opisu).",
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Do 20 dopasowanych zadań.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchIssuesResultResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/teams": {
+      "get": {
+        "tags": [
+          "Teams"
+        ],
+        "operationId": "listTeams",
+        "summary": "Lista dostępnych zespołów",
+        "description": "Zwraca zespoły, dla których zalogowana osoba ma uprawnienie `kivotasks.issues.read` albo `kivotasks.teams.manage`. W sesji przeglądarki odświeża buforowane nazwy z jednostek Core w jednym wywołaniu best-effort.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista dostępnych zespołów.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamsListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Teams"
+        ],
+        "operationId": "createTeam",
+        "summary": "Utworzenie zespołu z jednostki organizacyjnej Core",
+        "description": "Zamienia aktywną jednostkę organizacyjną z MonoriseCore w zespół KivoTasks z krótkim kluczem (2-5 wielkich liter) oraz domyślnym zestawem 6 statusów obiegu. Wymaga `kivotasks.teams.manage` w zakresie całej firmy (`ORGANIZATION`) oraz sesji przeglądarki BFF.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Identyfikator aktywnej jednostki Core oraz krótki klucz zespołu.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTeamInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Utworzony zespół.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/teams/candidates": {
+      "get": {
+        "tags": [
+          "Teams"
+        ],
+        "operationId": "listTeamCandidates",
+        "summary": "Aktywne jednostki Core, które nie są jeszcze zespołami",
+        "description": "Pobiera aktywne jednostki organizacyjne firmy z MonoriseCore i odfiltrowuje te, które są już zespołami KivoTasks. Wymaga `kivotasks.teams.manage` w zakresie całej firmy (`ORGANIZATION`) oraz sesji przeglądarki BFF.",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista kandydatów na zespoły.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamCandidatesListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{teamId}": {
+      "patch": {
+        "tags": [
+          "Teams"
+        ],
+        "operationId": "updateTeam",
+        "summary": "Zmiana klucza zespołu",
+        "description": "Zmienia krótki klucz zespołu (`kivotasks.teams.manage` dla zespołu). Identyfikatory zadań zmieniają się razem z kluczem. Zespoły spoza zasięgu odczytu zwracają `404 NOT_FOUND` przed `403`.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zespołu (UUID jednostki organizacyjnej z MonoriseCore).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Nowy unikalny klucz zespołu (2-5 wielkich liter A-Z).",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTeamInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Zaktualizowany zespół.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{teamId}/labels": {
+      "get": {
+        "tags": [
+          "Labels"
+        ],
+        "operationId": "listLabels",
+        "summary": "Etykiety zespołu",
+        "description": "Zwraca aktywne etykiety należące do zespołu.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zespołu (UUID jednostki organizacyjnej z MonoriseCore).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista etykiet zespołu.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelsListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Labels"
+        ],
+        "operationId": "createLabel",
+        "summary": "Utworzenie etykiety zespołu",
+        "description": "Tworzy nową etykietę w zespole (`kivotasks.teams.manage`). Nazwa jest unikalna w zespole bez rozróżniania wielkości liter.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zespołu (UUID jednostki organizacyjnej z MonoriseCore).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Nazwa (1-40 znaków) i token koloru etykiety.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLabelInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Utworzona etykieta.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{teamId}/labels/{labelId}": {
+      "patch": {
+        "tags": [
+          "Labels"
+        ],
+        "operationId": "updateLabel",
+        "summary": "Edycja etykiety zespołu",
+        "description": "Zmienia nazwę lub kolor etykiety (`kivotasks.teams.manage`).",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zespołu (UUID jednostki organizacyjnej z MonoriseCore).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "labelId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator etykiety (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Pola etykiety do zaktualizowania.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLabelInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Zaktualizowana etykieta.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Labels"
+        ],
+        "operationId": "deleteLabel",
+        "summary": "Usunięcie etykiety zespołu",
+        "description": "Usuwa etykietę z zespołu i odpina ją od zadań (`kivotasks.teams.manage`).",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zespołu (UUID jednostki organizacyjnej z MonoriseCore).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "labelId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator etykiety (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Etykieta została usunięta."
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{teamId}/members": {
+      "get": {
+        "tags": [
+          "Teams"
+        ],
+        "operationId": "listTeamMembers",
+        "summary": "Członkowie zespołu z aktywnym kontem",
+        "description": "Zwraca członków jednostki Core przypisanych do zespołu, którzy mają aktywne konto Monorise (`listProductDirectoryUnitMembers` i `listProductDirectoryEmployees` przez token maszynowy Core).",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zespołu (UUID jednostki organizacyjnej z MonoriseCore).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista członków zespołu z kontem.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamMembersListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{teamId}/states": {
+      "get": {
+        "tags": [
+          "States"
+        ],
+        "operationId": "listWorkflowStates",
+        "summary": "Statusy obiegu zadań zespołu",
+        "description": "Zwraca aktywne statusy obiegu zespołu posortowane według pola `position`.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zespołu (UUID jednostki organizacyjnej z MonoriseCore).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista statusów obiegu zespołu.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowStatesListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "States"
+        ],
+        "operationId": "createWorkflowState",
+        "summary": "Dodanie statusu obiegu zespołu",
+        "description": "Tworzy nowy status w zespole (`kivotasks.teams.manage` dla zespołu).",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zespołu (UUID jednostki organizacyjnej z MonoriseCore).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Nazwa, kategoria, token koloru i opcjonalna pozycja nowego statusu.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkflowStateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Utworzony status obiegu.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowStateResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{teamId}/states/{stateId}": {
+      "patch": {
+        "tags": [
+          "States"
+        ],
+        "operationId": "updateWorkflowState",
+        "summary": "Edycja statusu obiegu zespołu",
+        "description": "Aktualizuje nazwę, kategorię, kolor lub pozycję statusu (`kivotasks.teams.manage`). Zmiana kategorii ostatniego statusu w kategorii `BACKLOG`/`UNSTARTED` kończy się `409 CONFLICT`.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zespołu (UUID jednostki organizacyjnej z MonoriseCore).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "stateId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator statusu obiegu (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Pola statusu do zaktualizowania.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkflowStateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Zaktualizowany status obiegu.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowStateResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "States"
+        ],
+        "operationId": "deleteWorkflowState",
+        "summary": "Usunięcie statusu obiegu zespołu",
+        "description": "Usuwa status obiegu (`kivotasks.teams.manage`). Zwraca `409 CONFLICT`, gdy aktywne zadania używają tego statusu albo gdy jest to ostatni status zespołu w kategorii `BACKLOG` lub `UNSTARTED`.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zespołu (UUID jednostki organizacyjnej z MonoriseCore).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "stateId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator statusu obiegu (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Status został usunięty."
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
             "content": {
               "application/json": {
                 "schema": {
@@ -202,6 +2600,24 @@
           "error"
         ]
       },
+      "ApiListMeta": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "requestId",
+          "nextCursor"
+        ]
+      },
       "ApiMeta": {
         "type": "object",
         "properties": {
@@ -228,6 +2644,9 @@
           "manageTeams": {
             "type": "boolean"
           },
+          "createTeams": {
+            "type": "boolean"
+          },
           "manageProjects": {
             "type": "boolean"
           }
@@ -237,7 +2656,203 @@
           "readIssues",
           "writeIssues",
           "manageTeams",
+          "createTeams",
           "manageProjects"
+        ]
+      },
+      "ColorToken": {
+        "type": "string",
+        "enum": [
+          "gray",
+          "blue",
+          "cyan",
+          "teal",
+          "green",
+          "yellow",
+          "orange",
+          "red",
+          "pink",
+          "purple"
+        ]
+      },
+      "CoreUnitType": {
+        "type": "string",
+        "enum": [
+          "BRANCH",
+          "DEPARTMENT",
+          "TEAM"
+        ]
+      },
+      "CreateIssueInput": {
+        "type": "object",
+        "properties": {
+          "teamId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stateId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/IssuePriority"
+          },
+          "assigneeAccountId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "labelIds": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "dueDate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "estimate": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parentId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "teamId",
+          "title"
+        ]
+      },
+      "CreateIssueRelationInput": {
+        "type": "object",
+        "properties": {
+          "relatedIssueId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "type": {
+            "$ref": "#/components/schemas/IssueRelationViewType"
+          }
+        },
+        "required": [
+          "relatedIssueId",
+          "type"
+        ]
+      },
+      "CreateLabelInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "color": {
+            "$ref": "#/components/schemas/ColorToken"
+          }
+        },
+        "required": [
+          "name",
+          "color"
+        ]
+      },
+      "CreateTeamInput": {
+        "type": "object",
+        "properties": {
+          "unitId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Z]{2,5}$"
+          }
+        },
+        "required": [
+          "unitId",
+          "key"
+        ]
+      },
+      "CreateWorkflowStateInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "category": {
+            "$ref": "#/components/schemas/WorkflowStateCategory"
+          },
+          "color": {
+            "$ref": "#/components/schemas/ColorToken"
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        },
+        "required": [
+          "name",
+          "category",
+          "color"
         ]
       },
       "ErrorCode": {
@@ -277,6 +2892,570 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/Health"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "IssueDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "teamId": {
+            "type": "string"
+          },
+          "identifier": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "title": {
+            "type": "string"
+          },
+          "stateId": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/IssueStateSummary"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/IssuePriority"
+          },
+          "assigneeAccountId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "creatorAccountId": {
+            "type": "string"
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estimate": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sortOrder": {
+            "type": "number"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueLabelSummary"
+            }
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canceledAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IssueReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueReference"
+            }
+          },
+          "relations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueRelationView"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "organizationId",
+          "teamId",
+          "identifier",
+          "number",
+          "title",
+          "stateId",
+          "state",
+          "priority",
+          "assigneeAccountId",
+          "creatorAccountId",
+          "dueDate",
+          "estimate",
+          "parentId",
+          "sortOrder",
+          "labels",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "createdAt",
+          "updatedAt",
+          "description",
+          "parent",
+          "children",
+          "relations"
+        ]
+      },
+      "IssueDetailResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/IssueDetail"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "IssueLabelSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "color": {
+            "$ref": "#/components/schemas/ColorToken"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "color"
+        ]
+      },
+      "IssueList": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/IssueListItem"
+        }
+      },
+      "IssueListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "teamId": {
+            "type": "string"
+          },
+          "identifier": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "title": {
+            "type": "string"
+          },
+          "stateId": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/IssueStateSummary"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/IssuePriority"
+          },
+          "assigneeAccountId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "creatorAccountId": {
+            "type": "string"
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estimate": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sortOrder": {
+            "type": "number"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueLabelSummary"
+            }
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canceledAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "organizationId",
+          "teamId",
+          "identifier",
+          "number",
+          "title",
+          "stateId",
+          "state",
+          "priority",
+          "assigneeAccountId",
+          "creatorAccountId",
+          "dueDate",
+          "estimate",
+          "parentId",
+          "sortOrder",
+          "labels",
+          "startedAt",
+          "completedAt",
+          "canceledAt",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "IssueListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/IssueList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiListMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "IssuePriority": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 4
+      },
+      "IssueReference": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "teamId": {
+            "type": "string"
+          },
+          "identifier": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "title": {
+            "type": "string"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/IssuePriority"
+          },
+          "state": {
+            "$ref": "#/components/schemas/IssueStateSummary"
+          },
+          "assigneeAccountId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "teamId",
+          "identifier",
+          "number",
+          "title",
+          "priority",
+          "state",
+          "assigneeAccountId"
+        ]
+      },
+      "IssueRelationDirection": {
+        "type": "string",
+        "enum": [
+          "OUTGOING",
+          "INCOMING"
+        ]
+      },
+      "IssueRelationView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/IssueRelationViewType"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/IssueRelationDirection"
+          },
+          "relatedIssue": {
+            "$ref": "#/components/schemas/IssueReference"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "direction",
+          "relatedIssue",
+          "createdAt"
+        ]
+      },
+      "IssueRelationViewResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/IssueRelationView"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "IssueRelationViewType": {
+        "type": "string",
+        "enum": [
+          "BLOCKS",
+          "BLOCKED_BY",
+          "RELATED",
+          "DUPLICATE"
+        ]
+      },
+      "IssueStateSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "$ref": "#/components/schemas/WorkflowStateCategory"
+          },
+          "color": {
+            "$ref": "#/components/schemas/ColorToken"
+          },
+          "position": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category",
+          "color",
+          "position"
+        ]
+      },
+      "Label": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "teamId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "color": {
+            "$ref": "#/components/schemas/ColorToken"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "organizationId",
+          "teamId",
+          "name",
+          "color",
+          "createdAt"
+        ]
+      },
+      "LabelResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Label"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "LabelsList": {
+        "type": "object",
+        "properties": {
+          "labels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Label"
+            }
+          }
+        },
+        "required": [
+          "labels"
+        ]
+      },
+      "LabelsListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LabelsList"
           },
           "meta": {
             "$ref": "#/components/schemas/ApiMeta"
@@ -370,6 +3549,496 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/Me"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "SearchIssuesResult": {
+        "type": "object",
+        "properties": {
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueListItem"
+            }
+          }
+        },
+        "required": [
+          "issues"
+        ]
+      },
+      "SearchIssuesResultResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/SearchIssuesResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "Team": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "nextIssueNumber": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "organizationId",
+          "key",
+          "name",
+          "nextIssueNumber",
+          "createdAt",
+          "updatedAt",
+          "archivedAt"
+        ]
+      },
+      "TeamCandidate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/CoreUnitType"
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type",
+          "parentId"
+        ]
+      },
+      "TeamCandidatesList": {
+        "type": "object",
+        "properties": {
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamCandidate"
+            }
+          }
+        },
+        "required": [
+          "candidates"
+        ]
+      },
+      "TeamCandidatesListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TeamCandidatesList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "TeamMember": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "employeeId": {
+            "type": "string"
+          },
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountId",
+          "employeeId",
+          "firstName",
+          "lastName"
+        ]
+      },
+      "TeamMembersList": {
+        "type": "object",
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamMember"
+            }
+          }
+        },
+        "required": [
+          "members"
+        ]
+      },
+      "TeamMembersListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TeamMembersList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "TeamResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Team"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "TeamsList": {
+        "type": "object",
+        "properties": {
+          "teams": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Team"
+            }
+          }
+        },
+        "required": [
+          "teams"
+        ]
+      },
+      "TeamsListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TeamsList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "UpdateIssueInput": {
+        "type": "object",
+        "properties": {
+          "teamId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stateId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/IssuePriority"
+          },
+          "assigneeAccountId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "labelIds": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          "dueDate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "estimate": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parentId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sortOrder": {
+            "type": "number"
+          }
+        }
+      },
+      "UpdateLabelInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "color": {
+            "$ref": "#/components/schemas/ColorToken"
+          }
+        }
+      },
+      "UpdateTeamInput": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Z]{2,5}$"
+          }
+        },
+        "required": [
+          "key"
+        ]
+      },
+      "UpdateWorkflowStateInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "category": {
+            "$ref": "#/components/schemas/WorkflowStateCategory"
+          },
+          "color": {
+            "$ref": "#/components/schemas/ColorToken"
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        }
+      },
+      "WorkflowState": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "teamId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "$ref": "#/components/schemas/WorkflowStateCategory"
+          },
+          "color": {
+            "$ref": "#/components/schemas/ColorToken"
+          },
+          "position": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "organizationId",
+          "teamId",
+          "name",
+          "category",
+          "color",
+          "position",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "WorkflowStateCategory": {
+        "type": "string",
+        "enum": [
+          "BACKLOG",
+          "UNSTARTED",
+          "STARTED",
+          "COMPLETED",
+          "CANCELED"
+        ]
+      },
+      "WorkflowStateResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/WorkflowState"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "WorkflowStatesList": {
+        "type": "object",
+        "properties": {
+          "states": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowState"
+            }
+          }
+        },
+        "required": [
+          "states"
+        ]
+      },
+      "WorkflowStatesListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/WorkflowStatesList"
           },
           "meta": {
             "$ref": "#/components/schemas/ApiMeta"

@@ -11,12 +11,30 @@ import {
   ApiErrorBody,
   ApiErrorDetail,
   ApiErrorResponse,
+  ApiListMeta,
+  apiListSuccessSchema,
   ApiMeta,
   apiSuccessSchema,
   Capabilities,
+  ColorToken,
+  CoreUnitType,
   ErrorCode,
   Health,
+  IssueLabelSummary,
+  IssueListItem,
+  IssuePriority,
+  IssueReference,
+  IssueRelationDirection,
+  IssueRelationView,
+  IssueRelationViewType,
+  IssueStateSummary,
+  Label,
   Me,
+  Team,
+  TeamCandidate,
+  TeamMember,
+  WorkflowState,
+  WorkflowStateCategory,
 } from "@kivotasks/contracts";
 import { z } from "zod";
 import {
@@ -148,10 +166,27 @@ function buildSchemaRegistry(routes: readonly RouteDefinition[]) {
   register("ApiErrorDetail", ApiErrorDetail);
   register("ApiErrorBody", ApiErrorBody);
   register("ApiMeta", ApiMeta);
+  register("ApiListMeta", ApiListMeta);
   register("ApiErrorResponse", ApiErrorResponse);
   register("Health", Health);
   register("Capabilities", Capabilities);
   register("Me", Me);
+  register("ColorToken", ColorToken);
+  register("CoreUnitType", CoreUnitType);
+  register("WorkflowStateCategory", WorkflowStateCategory);
+  register("IssuePriority", IssuePriority);
+  register("IssueRelationViewType", IssueRelationViewType);
+  register("IssueRelationDirection", IssueRelationDirection);
+  register("Team", Team);
+  register("TeamCandidate", TeamCandidate);
+  register("TeamMember", TeamMember);
+  register("WorkflowState", WorkflowState);
+  register("Label", Label);
+  register("IssueStateSummary", IssueStateSummary);
+  register("IssueLabelSummary", IssueLabelSummary);
+  register("IssueReference", IssueReference);
+  register("IssueRelationView", IssueRelationView);
+  register("IssueListItem", IssueListItem);
 
   const responseEnvelopes = new Map<string, z.ZodType>();
   for (const route of routes) {
@@ -161,7 +196,9 @@ function buildSchemaRegistry(routes: readonly RouteDefinition[]) {
     if (route.dataSchemaName && route.dataSchema) {
       register(route.dataSchemaName, route.dataSchema);
       if (route.envelope && route.responseSchemaName && !responseEnvelopes.has(route.responseSchemaName)) {
-        const envelopeSchema = apiSuccessSchema(route.dataSchema);
+        const envelopeSchema = route.paginated
+          ? apiListSuccessSchema(route.dataSchema)
+          : apiSuccessSchema(route.dataSchema);
         responseEnvelopes.set(route.responseSchemaName, envelopeSchema);
         register(route.responseSchemaName, envelopeSchema);
       }
@@ -327,7 +364,8 @@ export function buildOpenApiDocument(): OpenApiSpec {
     info: {
       title: "KivoTasks API",
       version: readRootVersion(),
-      summary: "API produktu KivoTasks (zadania i projekty Monorise): stan usługi oraz sesja przeglądarki.",
+      summary:
+        "API produktu KivoTasks (zadania i projekty Monorise): zespoły, obiegi statusów, etykiety, zadania i wyszukiwanie.",
       description:
         "Opis API KivoTasks (`/api/v1/*`) wygenerowany automatycznie z kodu (katalog ścieżek i schematy Zod). " +
         "Wszystkie odpowiedzi ustawiają nagłówek `Cache-Control: no-store` i używają koperty `{ data, meta, error }` " +
