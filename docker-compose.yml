@@ -1,0 +1,18 @@
+# Lokalna baza do pracy nad KivoTasks:
+# - PostgreSQL (pnpm db:up, potem pnpm db:migrate) na porcie 5436, żeby nie zderzyć się z Core (5433), AvenMail (5434) i TimoTime (5435).
+# Kontener i wolumen mają przedrostek kivo-tasks (małe litery, wyrazy z myślnikiem).
+name: kivo-tasks
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "127.0.0.1:5436:5432"
+    volumes:
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - kivo-tasks-postgres:/var/lib/postgresql/data
+
+volumes:
+  kivo-tasks-postgres:
