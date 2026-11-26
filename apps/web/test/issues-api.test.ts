@@ -1,6 +1,6 @@
 /**
  * Testy tras zadań, relacji i wyszukiwania na prawdziwych handlerach Next.js z atrapą `createFakeCore`
- * oraz pamięcią `createMemoryIssuesStore` (bez PostgreSQL).
+ * na prawdziwym PostgreSQL z RLS (`prismaIssuesStore`, baza testowa z `vitest.config.ts`).
  */
 import type { Authenticated, Session } from "@monorise-team/auth/next";
 import {
@@ -30,10 +30,8 @@ import {
   CORE_PERMISSIONS_READ_SCOPE,
   CORE_PERMISSIONS_REGISTER_SCOPE,
 } from "@/server/core-machine";
-import { setIssuesStoreForTests } from "@/server/issues-store";
 import { invalidatePermissionCache } from "@/server/permissions";
 import { createFakeCoreWithUnitsFetch } from "./helpers/fake-core-units";
-import { createMemoryIssuesStore } from "./helpers/memory-issues-store";
 
 const API = "http://kivo.localhost:3500";
 const BASE = `${API}/api/v1`;
@@ -74,7 +72,6 @@ function call<P>(
 
 let fakeCore: FakeCore;
 let acme: FakeOrganizationBuilder;
-let store: ReturnType<typeof createMemoryIssuesStore>;
 
 let unitMagazynId: string;
 let unitFinanseId: string;
@@ -139,8 +136,6 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   fakeCore.reset();
-  store = createMemoryIssuesStore();
-  setIssuesStoreForTests(store);
   setCoreRetryForTests(false);
   invalidatePermissionCache();
   resetMachineCoreTokenCache();
@@ -224,13 +219,11 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  setIssuesStoreForTests();
   setCoreRetryForTests();
 });
 
 afterAll(() => {
   vi.restoreAllMocks();
-  setIssuesStoreForTests();
   setCoreRetryForTests();
 });
 
@@ -431,6 +424,42 @@ describe("zadania: numeracja, statusy domyślne, znaczniki czasu, przypisanie i 
         })
       ).status,
     ).toBe(403);
+  });
+
+  it("osoba z samym issues.write dostaje zmienione zadanie, a nie 404", async () => {
+    const writerRoleId = acme.addRole({
+      name: "Tylko zapis",
+      product: "kivotasks",
+      permissions: [KIVOTASKS_PERMISSIONS.keys["issues.write"]],
+    }).id;
+    const piotr = acme.addEmployee({
+      firstName: "Piotr",
+      lastName: "Zapisujący",
+      products: ["kivotasks"],
+      unitIds: [unitMagazynId],
+    });
+    acme.assignRole({
+      accountId: piotr.accountId,
+      roleId: writerRoleId,
+      scope: { type: "UNIT", unitId: unitMagazynId },
+    });
+    const piotrToken = await acme.signUserToken(piotr.accountId, { audience: API });
+
+    const created = await call(issuesRoute.POST, "/issues", {
+      method: "POST",
+      body: { teamId: unitMagazynId, title: "Wymiana palet" },
+      token: piotrToken,
+    });
+    expect(created.status).toBe(201);
+
+    const updated = await call(
+      issueByIdRoute.PATCH,
+      `/issues/${created.body.data.id}`,
+      { method: "PATCH", body: { title: "Wymiana palet w strefie B" }, token: piotrToken },
+      { issueId: created.body.data.id },
+    );
+    expect(updated.status).toBe(200);
+    expect(updated.body.data.title).toBe("Wymiana palet w strefie B");
   });
 });
 

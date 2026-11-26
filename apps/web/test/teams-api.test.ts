@@ -1,6 +1,6 @@
 /**
  * Testy tras zespołów, statusów obiegu i etykiet na prawdziwych handlerach Next.js z atrapą
- * `createFakeCore` + adapterem `GET /core/v1/units` i pamięcią `createMemoryIssuesStore` (bez PostgreSQL).
+ * `createFakeCore` + adapterem `GET /core/v1/units`, na prawdziwym PostgreSQL z RLS (`prismaIssuesStore`).
  */
 import type { Authenticated, Session } from "@monorise-team/auth/next";
 import {
@@ -30,10 +30,8 @@ import {
   CORE_PERMISSIONS_READ_SCOPE,
   CORE_PERMISSIONS_REGISTER_SCOPE,
 } from "@/server/core-machine";
-import { setIssuesStoreForTests } from "@/server/issues-store";
 import { invalidatePermissionCache } from "@/server/permissions";
 import { createFakeCoreWithUnitsFetch } from "./helpers/fake-core-units";
-import { createMemoryIssuesStore } from "./helpers/memory-issues-store";
 
 const API = "http://kivo.localhost:3500";
 const BASE = `${API}/api/v1`;
@@ -74,7 +72,6 @@ function call<P>(
 
 let fakeCore: FakeCore;
 let acme: FakeOrganizationBuilder;
-let store: ReturnType<typeof createMemoryIssuesStore>;
 let unitsFaultStatus: number | null = null;
 
 let branchKrakowId: string;
@@ -155,8 +152,6 @@ beforeEach(() => {
   fakeCore.reset();
   fakeCore.setDirectoryPageSize(undefined);
   unitsFaultStatus = null;
-  store = createMemoryIssuesStore();
-  setIssuesStoreForTests(store);
   setCoreRetryForTests(false);
   invalidatePermissionCache();
   resetMachineCoreTokenCache();
@@ -230,13 +225,11 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  setIssuesStoreForTests();
   setCoreRetryForTests();
 });
 
 afterAll(() => {
   vi.restoreAllMocks();
-  setIssuesStoreForTests();
   setCoreRetryForTests();
 });
 

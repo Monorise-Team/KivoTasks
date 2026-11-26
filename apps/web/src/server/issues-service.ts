@@ -29,6 +29,7 @@ import {
   canReadTeam,
   canReadTeamIssues,
   canWriteTeamIssues,
+  mergeTeamFilters,
   PERMISSION_DENIED_MESSAGE,
   requireAuthorizedSnapshot,
   teamFilterFromScope,
@@ -192,7 +193,11 @@ export async function updateIssue(caller: Caller, issueId: string, rawInput: unk
     await assertAssigneeIsTeamMember(caller.organizationId, existing.teamId, input.assigneeAccountId);
   }
 
-  const readScope = scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.read"]);
+  // Osoba z samym zapisem też widzi zmienione zadanie (jak przy sprawdzaniu 404 przed 403 wyżej)
+  const visibleTeams = mergeTeamFilters(
+    teamFilterFromScope(scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.read"])),
+    teamFilterFromScope(scopeOf(snapshot, KIVOTASKS_PERMISSIONS.keys["issues.write"])),
+  );
   const updated = await store.updateIssue(
     caller,
     issueId,
@@ -208,7 +213,7 @@ export async function updateIssue(caller: Caller, issueId: string, rawInput: unk
       parentId: input.parentId,
       sortOrder: input.sortOrder,
     },
-    teamFilterFromScope(readScope),
+    visibleTeams,
   );
   if (!updated) {
     throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono zadania");

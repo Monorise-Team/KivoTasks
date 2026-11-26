@@ -149,13 +149,6 @@ export interface IssuesStore {
   searchIssues(actor: Actor, params: SearchIssuesStoreParams): Promise<IssueListItem[]>;
 }
 
-let activeStore: IssuesStore = prismaIssuesStore;
-
 export function getIssuesStore(): IssuesStore {
-  return activeStore;
-}
-
-/** Nadpisuje warstwę zapisu w testach jednostkowych i tras bez PostgreSQL (bez argumentu przywraca Prismę). */
-export function setIssuesStoreForTests(store: IssuesStore = prismaIssuesStore): void {
-  activeStore = store;
+  return prismaIssuesStore;
 }

@@ -157,6 +157,12 @@ export function teamFilterFromScope(scope: AccessScope): TeamFilterScope {
   return [];
 }
 
+/** Suma dwóch filtrów zespołów (np. `issues.read` i `issues.write`, bo zapis też daje wgląd w zadanie). */
+export function mergeTeamFilters(a: TeamFilterScope, b: TeamFilterScope): TeamFilterScope {
+  if (a === "ALL" || b === "ALL") return "ALL";
+  return [...new Set([...a, ...b])];
+}
+
 /** Zwraca `true`, gdy osoba ma prawo widzieć zespół (`issues.read` albo `teams.manage` na tym zespole). */
 export function canReadTeam(snapshot: PermissionSnapshot, teamId: string): boolean {
   return (

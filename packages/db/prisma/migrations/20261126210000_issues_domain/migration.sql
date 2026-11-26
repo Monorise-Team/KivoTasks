@@ -78,9 +78,12 @@ CREATE TABLE "public"."issues" (
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(3) NOT NULL,
     "deleted_at" TIMESTAMPTZ(3),
+    -- Znaki interpunkcyjne ASCII zamieniamy na spacje, żeby baza dzieliła tekst na słowa tak samo jak zapytanie
+    -- (litery i cyfry). Bez tego parser czyta „MAG-2” jako słowo „mag” i liczbę „-2”, a „anna@acme.test” jako
+    -- jeden adres, więc wyszukiwanie po fragmentach nie trafia.
     "search_vector" tsvector GENERATED ALWAYS AS (
-        setweight(to_tsvector('simple', coalesce("title", '')), 'A') ||
-        setweight(to_tsvector('simple', coalesce("description", '')), 'B')
+        setweight(to_tsvector('simple', translate(coalesce("title", ''), '!"#$%&''()*+,-./:;<=>?@[\]^_`{|}~', '                                ')), 'A') ||
+        setweight(to_tsvector('simple', translate(coalesce("description", ''), '!"#$%&''()*+,-./:;<=>?@[\]^_`{|}~', '                                ')), 'B')
     ) STORED NOT NULL,
 
     CONSTRAINT "issues_pkey" PRIMARY KEY ("id"),
