@@ -44,12 +44,21 @@ KivoTasks jest produktem Monorise do zarządzania zadaniami i projektami w przeg
   - Po odebraniu `organization.permissions.changed` natychmiast wywołuje `invalidatePermissionCache({ organizationId, accountId })`.
   - Ograniczenie: pamięć podręczna uprawnień działa w pamięci pojedynczego procesu; przed skalowaniem na wiele instancji potrzebna będzie wspólna pamięć podręczna albo kursor na instancję.
 
-## Powłoka aplikacji (`apps/web/src/app/app/`)
+## Powłoka aplikacji i widoki zadań (`apps/web/src/app/app/`)
 
-- Korzysta wyłącznie z `@monorise-team/ui` i tokenów `@monorise-team/tokens` (ADR-0091).
-- `KivoTasksApp.tsx`: zarządza stanem sesji (`LoadingView`, `SignedOutView`, `LoadErrorView`, `NoAccessView`) i wyborem widoku z fragmentu URL (`app-views.ts`: `#moje-zadania`, `#zespoly`, `#wyglad`).
-- `KivoTasksShell.tsx`: `AppShell`, zwijany `SidebarShell`, paleta poleceń `⌘K` (`CommandPalette`), pomoc skrótów (`ShortcutsHelp` pod `?`) i skróty `g m` (Moje zadania), `g z` (Zespoły), `g w` (Wygląd).
-- W etapie 0 widoki „Moje zadania” i „Zespoły” wyświetlają stan pusty informujący o etapie 1, a „Wygląd” (`AppearanceView.tsx`) udostępnia ustawienia motywu (`AppearanceControls`).
+- Korzysta wyłącznie z `@monorise-team/ui` i tokenów `@monorise-team/tokens` (ADR-0091), w tym mapowania nazwanych kolorów etykiet i statusów (`gray`, `blue`, `cyan`, `teal`, `green`, `yellow`, `orange`, `red`, `pink`, `purple`) na zmienne motywu i paletę Tailwind bez wpisanych na sztywno kolorów.
+- `layout.tsx` i `KivoTasksApp.tsx`: utrzymują wspólną sesję BFF (`LoadingView`, `SignedOutView`, `LoadErrorView`, `NoAccessView`), kontekst `KivoTasksContext` (profil `me`, `capabilities`, lista zespołów, odświeżanie widoków) oraz wspólne okno tworzenia zadania `CreateIssueDialog`.
+- `KivoTasksShell.tsx`: `AppShell`, zwijany `SidebarShell` z listą zespołów, paleta poleceń `⌘K` (`CommandPalette` z asynchronicznym wyszukiwaniem `/api/v1/search` z pierwszeństwem trafień identyfikatora oraz poleceniami nawigacji, tworzenia zadania i przełączania trybu motywu) oraz `ShortcutsHelp` pod `?`.
+- Trasy aplikacji pod `kivotasks.*` (przepisywane na `src/app/app/*`):
+  - `/` i `/my-issues`: „Moje zadania” (zadania przypisane do zalogowanej osoby, ze wsparciem starszych fragmentów `#zespoly` i `#wyglad` z etapu 0),
+  - `/teams`: lista zespołów z oknem „Utwórz zespół” z jednostek Core (`createTeams`),
+  - `/teams/[key]`: lista zadań zespołu pogrupowana według kolejności kategorii statusów (`BACKLOG`, `UNSTARTED`, `STARTED`, `COMPLETED`, `CANCELED`), z filtrami w zapytaniu URL (status, osoba przypisana, etykieta, priorytet, wyszukiwanie, 5 trybów sortowania, „Pokaż zakończone”) i stronicowaniem kursorowym („Wczytaj więcej”),
+  - `/teams/[key]/board`: tablica Kanban z jedną kolumną na aktywny status obiegu (`position`), przeciąganiem między kolumnami (`stateId`) i w kolumnie (`sortOrder` jako punkt środkowy sąsiadów), optymistyczną aktualizacją z wycofaniem przy błędzie oraz alternatywą klawiaturową w menu „Przenieś do…”,
+  - `/teams/[key]/settings`: ustawienia zespołu dostępne z `manageTeams` (`SettingsLayout`: zmiana klucza zespołu, dodawanie/edycja/kolejność/archiwizacja statusów obiegu z zachowaniem komunikatów `409` z API oraz etykiety),
+  - `/issue/[identifier]`: szczegóły zadania z edycją tytułu i opisu, panelem bocznym (status, priorytet w kolejności Linear `0..4`, osoba przypisana z członków zespołu, wiele etykiet, termin, wycena, zadanie nadrzędne), podzadaniami („Dodaj podzadanie”), powiązaniami (`BLOCKS`, `BLOCKED_BY`, `RELATED`, `DUPLICATE`) i usuwaniem z potwierdzeniem,
+  - `/appearance`: ustawienia wyglądu (`AppearanceView` i `AppearanceControls`).
+- Skróty klawiszowe (`shortcuts.ts`, ignorowane w polach tekstowych i oknach modalnych): `⌘K` / `Ctrl+K` (paleta poleceń), `c` (nowe zadanie, gdy `writeIssues`), `/` (fokus pola szukania/filtra), `g i` (Moje zadania), `g t` (Zespoły), `g b` (tablica bieżącego zespołu), `g w` (Wygląd), na liście `j` / `k` (poruszanie po wierszach) i `Enter` (otwarcie zadania), `?` (pomoc skrótów).
+- Czysta logika widoków jest wydzielona do modułów `app-views.ts`, `issue-ui.ts`, `board-logic.ts` i `shortcuts.ts` oraz pokryta testami jednostkowymi w `apps/web/test/app-views.test.ts` i `apps/web/test/issue-views.test.ts`.
 
 ## Polecenia robocze
 
