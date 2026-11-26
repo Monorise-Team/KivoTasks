@@ -1,5 +1,5 @@
 # Lokalna baza do pracy nad KivoTasks:
-# - PostgreSQL (pnpm db:up, potem pnpm db:migrate) na porcie 5436, żeby nie zderzyć się z Core (5433) i AvenMail (5434).
+# - PostgreSQL (pnpm db:up, potem pnpm db:migrate) na porcie 5436, żeby nie zderzyć się z Core (5433), AvenMail (5434) i TimoTime (5435).
 # Kontener i wolumen mają przedrostek kivo-tasks (małe litery, wyrazy z myślnikiem).
 name: kivo-tasks
 

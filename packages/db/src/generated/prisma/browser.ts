@@ -23,11 +23,6 @@ export * from './enums.js';
  */
 export type Session = Prisma.SessionModel
 /**
- * Model TimeEntry
- * Wpis czasu pracy pracownika. Jedna osoba może mieć co najwyżej jeden otwarty wpis (indeks częściowy w migracji).
- */
-export type TimeEntry = Prisma.TimeEntryModel
-/**
  * Model EventFeedCursor
  * Kursor ostatnio przetworzonego zdarzenia z kanału HTTP produktu (bez danych firmowych, bez RLS).
  */

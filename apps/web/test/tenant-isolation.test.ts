@@ -1,157 +1,85 @@
 /**
  * Testy separacji firm na bazie PostgreSQL (ADR-0037) za pomocą `checkTenantIsolation`
- * z `@monorise-team/testing`: firma B nigdy nie odczyta wpisów czasu pracy firmy A
- * ani przez `withUser`, ani przez `withTeamScope`.
+ * z `@monorise-team/testing`. W etapie 0 (przed tabelami domenowymi z etapu 1) weryfikują
+ * funkcję pomocniczą `public.current_organization_id()`, `public.current_account_id()` oraz `withUser`
+ * na tabeli tymczasowej z wymuszonym RLS (`ENABLE` + `FORCE ROW LEVEL SECURITY`).
  *
  * Wymaga uruchomionej bazy testowej (`pnpm db:up && pnpm db:migrate`, rola `kivo_tasks_app` z RLS).
  */
 import { checkTenantIsolation, formatViolations } from "@monorise-team/testing";
-import { uuidv7, withTeamScope, withUser, type Actor } from "@kivotasks/db";
-import { afterAll, describe, expect, it } from "vitest";
-import { getDb } from "@/server/db";
+import { createDb, uuidv7, withUser, type Actor } from "@kivotasks/db";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { config } from "@/server/config";
+
+// Jedno połączenie w puli gwarantuje wspólną sesję PostgreSQL dla tabeli tymczasowej z RLS.
+const db = createDb(config.databaseUrl, { max: 1 });
+
+beforeAll(async () => {
+  await db.$executeRawUnsafe(`
+    CREATE TEMP TABLE tenant_isolation_probe (
+      id UUID PRIMARY KEY,
+      organization_id UUID NOT NULL,
+      account_id UUID NOT NULL,
+      title TEXT NOT NULL
+    )
+  `);
+  await db.$executeRawUnsafe(`ALTER TABLE tenant_isolation_probe ENABLE ROW LEVEL SECURITY`);
+  await db.$executeRawUnsafe(`ALTER TABLE tenant_isolation_probe FORCE ROW LEVEL SECURITY`);
+  await db.$executeRawUnsafe(`
+    CREATE POLICY tenant_isolation ON tenant_isolation_probe
+      USING (organization_id = "public"."current_organization_id"())
+      WITH CHECK (organization_id = "public"."current_organization_id"())
+  `);
+});
 
 afterAll(async () => {
-  await getDb().$disconnect();
+  await db.$executeRawUnsafe(`DROP TABLE IF EXISTS tenant_isolation_probe`);
+  await db.$disconnect();
 });
 
 describe("Separacja firm w bazie danych (checkTenantIsolation, ADR-0037)", () => {
-  it("withUser: firma B nigdy nie odczytuje wpisów czasu pracy firmy A", async () => {
-    const db = getDb();
-    const accountsByTenant = new Map<string, { actor: Actor; employeeId: string }>();
+  it("withUser: firma B nigdy nie odczytuje wierszy firmy A przez politykę RLS", async () => {
+    const actorsByTenant = new Map<string, Actor>();
 
-    const actorFor = (tenantId: string) => {
-      let entry = accountsByTenant.get(tenantId);
-      if (!entry) {
-        entry = {
-          actor: { organizationId: tenantId, accountId: uuidv7() },
-          employeeId: uuidv7(),
-        };
-        accountsByTenant.set(tenantId, entry);
+    const actorFor = (tenantId: string): Actor => {
+      let actor = actorsByTenant.get(tenantId);
+      if (!actor) {
+        actor = { organizationId: tenantId, accountId: uuidv7() };
+        actorsByTenant.set(tenantId, actor);
       }
-      return entry;
+      return actor;
     };
 
     const result = await checkTenantIsolation({
       seedAsTenant: async (tenantId) => {
-        const { actor, employeeId } = actorFor(tenantId);
-        await withUser(db, actor, (tx) =>
-          tx.timeEntry.create({
-            data: {
-              id: uuidv7(),
-              organizationId: actor.organizationId,
-              accountId: actor.accountId,
-              employeeId,
-              kind: "WORK",
-              startedAt: new Date("2026-11-24T08:00:00.000Z"),
-              endedAt: new Date("2026-11-24T16:00:00.000Z"),
-              note: "Wpis firmy A",
-            },
-          }),
+        const actor = actorFor(tenantId);
+        await withUser(
+          db,
+          actor,
+          (tx) =>
+            tx.$executeRaw`
+            INSERT INTO tenant_isolation_probe (id, organization_id, account_id, title)
+            VALUES (${uuidv7()}::uuid, ${actor.organizationId}::uuid, ${actor.accountId}::uuid, 'Zadanie firmy A')
+          `,
         );
       },
       readAsTenant: async (tenantId) => {
-        const { actor } = actorFor(tenantId);
-        return withUser(db, actor, (tx) => tx.timeEntry.findMany());
-      },
-      cleanup: async ({ tenantAId, tenantBId }) => {
-        for (const tenantId of [tenantAId, tenantBId]) {
-          const entry = accountsByTenant.get(tenantId);
-          if (entry) {
-            await withUser(db, entry.actor, (tx) => tx.timeEntry.deleteMany({}));
-          }
-        }
-      },
-    });
-
-    expect(result.passed, formatViolations(result.violations)).toBe(true);
-  });
-
-  it("withTeamScope (ALL): kierownik firmy B nigdy nie odczytuje wpisów pracowników firmy A", async () => {
-    const db = getDb();
-    const employeesByTenant = new Map<string, { owner: Actor; manager: Actor; employeeId: string }>();
-
-    const actorsFor = (tenantId: string) => {
-      let entry = employeesByTenant.get(tenantId);
-      if (!entry) {
-        entry = {
-          owner: { organizationId: tenantId, accountId: uuidv7() },
-          manager: { organizationId: tenantId, accountId: uuidv7() },
-          employeeId: uuidv7(),
-        };
-        employeesByTenant.set(tenantId, entry);
-      }
-      return entry;
-    };
-
-    const result = await checkTenantIsolation({
-      seedAsTenant: async (tenantId) => {
-        const { owner, employeeId } = actorsFor(tenantId);
-        await withUser(db, owner, (tx) =>
-          tx.timeEntry.create({
-            data: {
-              id: uuidv7(),
-              organizationId: owner.organizationId,
-              accountId: owner.accountId,
-              employeeId,
-              kind: "REMOTE",
-              startedAt: new Date("2026-11-24T09:00:00.000Z"),
-              endedAt: null,
-              note: "Praca zdalna firmy A",
-            },
-          }),
-        );
-      },
-      readAsTenant: async (tenantId) => {
-        const { manager } = actorsFor(tenantId);
-        return withTeamScope(db, manager, { type: "ALL" }, (tx) => tx.timeEntry.findMany());
-      },
-      cleanup: async ({ tenantAId, tenantBId }) => {
-        for (const tenantId of [tenantAId, tenantBId]) {
-          const entry = employeesByTenant.get(tenantId);
-          if (entry) {
-            await withUser(db, entry.owner, (tx) => tx.timeEntry.deleteMany({}));
-          }
-        }
-      },
-    });
-
-    expect(result.passed, formatViolations(result.violations)).toBe(true);
-  });
-
-  it("withTeamScope (EMPLOYEES): podanie employeeId z firmy A nie ujawnia jej wpisów firmie B", async () => {
-    const db = getDb();
-    const sharedTargetEmployeeId = uuidv7();
-    const seededOwners = new Map<string, Actor>();
-
-    const result = await checkTenantIsolation({
-      seedAsTenant: async (tenantId) => {
-        const owner: Actor = { organizationId: tenantId, accountId: uuidv7() };
-        seededOwners.set(tenantId, owner);
-        await withUser(db, owner, (tx) =>
-          tx.timeEntry.create({
-            data: {
-              id: uuidv7(),
-              organizationId: owner.organizationId,
-              accountId: owner.accountId,
-              employeeId: sharedTargetEmployeeId,
-              kind: "WORK",
-              startedAt: new Date("2026-11-24T08:00:00.000Z"),
-              endedAt: new Date("2026-11-24T12:00:00.000Z"),
-            },
-          }),
-        );
-      },
-      readAsTenant: async (tenantId) => {
-        const manager: Actor = { organizationId: tenantId, accountId: uuidv7() };
-        return withTeamScope(db, manager, { type: "EMPLOYEES", employeeIds: [sharedTargetEmployeeId] }, (tx) =>
-          tx.timeEntry.findMany(),
+        const actor = actorFor(tenantId);
+        return withUser(
+          db,
+          actor,
+          (tx) =>
+            tx.$queryRaw<{ id: string; organizationId: string }[]>`
+            SELECT id::text AS id, organization_id::text AS "organizationId"
+            FROM tenant_isolation_probe
+          `,
         );
       },
       cleanup: async ({ tenantAId, tenantBId }) => {
         for (const tenantId of [tenantAId, tenantBId]) {
-          const owner = seededOwners.get(tenantId);
-          if (owner) {
-            await withUser(db, owner, (tx) => tx.timeEntry.deleteMany({}));
+          const actor = actorsByTenant.get(tenantId);
+          if (actor) {
+            await withUser(db, actor, (tx) => tx.$executeRaw`DELETE FROM tenant_isolation_probe`);
           }
         }
       },

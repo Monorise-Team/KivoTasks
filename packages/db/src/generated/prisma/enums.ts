@@ -9,11 +9,7 @@
 * 🟢 You can import this file directly.
 */
 
-export const TimeEntryKind = {
-  WORK: 'WORK',
-  BREAK: 'BREAK',
-  REMOTE: 'REMOTE',
-  BUSINESS_TRIP: 'BUSINESS_TRIP'
-} as const
 
-export type TimeEntryKind = (typeof TimeEntryKind)[keyof typeof TimeEntryKind]
+
+// This file is empty because there are no enums in the schema.
+export {}

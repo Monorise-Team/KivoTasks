@@ -398,7 +398,6 @@ type FieldRefInputType<Model, FieldType> = Model extends never ? never : FieldRe
 
 export const ModelName = {
   Session: 'Session',
-  TimeEntry: 'TimeEntry',
   EventFeedCursor: 'EventFeedCursor',
   ProcessedEvent: 'ProcessedEvent'
 } as const
@@ -416,7 +415,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "session" | "timeEntry" | "eventFeedCursor" | "processedEvent"
+    modelProps: "session" | "eventFeedCursor" | "processedEvent"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -491,80 +490,6 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.SessionCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.SessionCountAggregateOutputType> | number
-        }
-      }
-    }
-    TimeEntry: {
-      payload: Prisma.$TimeEntryPayload<ExtArgs>
-      fields: Prisma.TimeEntryFieldRefs
-      operations: {
-        findUnique: {
-          args: Prisma.TimeEntryFindUniqueArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$TimeEntryPayload> | null
-        }
-        findUniqueOrThrow: {
-          args: Prisma.TimeEntryFindUniqueOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$TimeEntryPayload>
-        }
-        findFirst: {
-          args: Prisma.TimeEntryFindFirstArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$TimeEntryPayload> | null
-        }
-        findFirstOrThrow: {
-          args: Prisma.TimeEntryFindFirstOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$TimeEntryPayload>
-        }
-        findMany: {
-          args: Prisma.TimeEntryFindManyArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$TimeEntryPayload>[]
-        }
-        create: {
-          args: Prisma.TimeEntryCreateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$TimeEntryPayload>
-        }
-        createMany: {
-          args: Prisma.TimeEntryCreateManyArgs<ExtArgs>
-          result: BatchPayload
-        }
-        createManyAndReturn: {
-          args: Prisma.TimeEntryCreateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$TimeEntryPayload>[]
-        }
-        delete: {
-          args: Prisma.TimeEntryDeleteArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$TimeEntryPayload>
-        }
-        update: {
-          args: Prisma.TimeEntryUpdateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$TimeEntryPayload>
-        }
-        deleteMany: {
-          args: Prisma.TimeEntryDeleteManyArgs<ExtArgs>
-          result: BatchPayload
-        }
-        updateMany: {
-          args: Prisma.TimeEntryUpdateManyArgs<ExtArgs>
-          result: BatchPayload
-        }
-        updateManyAndReturn: {
-          args: Prisma.TimeEntryUpdateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$TimeEntryPayload>[]
-        }
-        upsert: {
-          args: Prisma.TimeEntryUpsertArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$TimeEntryPayload>
-        }
-        aggregate: {
-          args: Prisma.TimeEntryAggregateArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.AggregateTimeEntry>
-        }
-        groupBy: {
-          args: Prisma.TimeEntryGroupByArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.TimeEntryGroupByOutputType>[]
-        }
-        count: {
-          args: Prisma.TimeEntryCountArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.TimeEntryCountAggregateOutputType> | number
         }
       }
     }
@@ -768,22 +693,6 @@ export const SessionScalarFieldEnum = {
 export type SessionScalarFieldEnum = (typeof SessionScalarFieldEnum)[keyof typeof SessionScalarFieldEnum]
 
 
-export const TimeEntryScalarFieldEnum = {
-  id: 'id',
-  organizationId: 'organizationId',
-  accountId: 'accountId',
-  employeeId: 'employeeId',
-  kind: 'kind',
-  startedAt: 'startedAt',
-  endedAt: 'endedAt',
-  note: 'note',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
-} as const
-
-export type TimeEntryScalarFieldEnum = (typeof TimeEntryScalarFieldEnum)[keyof typeof TimeEntryScalarFieldEnum]
-
-
 export const EventFeedCursorScalarFieldEnum = {
   id: 'id',
   sequence: 'sequence',
@@ -818,14 +727,6 @@ export const QueryMode = {
 export type QueryMode = (typeof QueryMode)[keyof typeof QueryMode]
 
 
-export const NullsOrder = {
-  first: 'first',
-  last: 'last'
-} as const
-
-export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
-
-
 
 /**
  * Field references
@@ -857,20 +758,6 @@ export type DateTimeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel
  * Reference to a field of type 'DateTime[]'
  */
 export type ListDateTimeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'DateTime[]'>
-    
-
-
-/**
- * Reference to a field of type 'TimeEntryKind'
- */
-export type EnumTimeEntryKindFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TimeEntryKind'>
-    
-
-
-/**
- * Reference to a field of type 'TimeEntryKind[]'
- */
-export type ListEnumTimeEntryKindFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TimeEntryKind[]'>
     
 
 
@@ -1039,7 +926,6 @@ export interface PrismaClientOptionsWithAdapter extends PrismaClientBaseOptions 
 export type PrismaClientOptions = PrismaClientOptionsWithAccelerateUrl | PrismaClientOptionsWithAdapter
 export type GlobalOmitConfig = {
   session?: Prisma.SessionOmit
-  timeEntry?: Prisma.TimeEntryOmit
   eventFeedCursor?: Prisma.EventFeedCursorOmit
   processedEvent?: Prisma.ProcessedEventOmit
 }

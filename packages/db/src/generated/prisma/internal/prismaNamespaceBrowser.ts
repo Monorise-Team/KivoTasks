@@ -52,7 +52,6 @@ export const AnyNull = runtime.AnyNull
 
 export const ModelName = {
   Session: 'Session',
-  TimeEntry: 'TimeEntry',
   EventFeedCursor: 'EventFeedCursor',
   ProcessedEvent: 'ProcessedEvent'
 } as const
@@ -84,22 +83,6 @@ export const SessionScalarFieldEnum = {
 } as const
 
 export type SessionScalarFieldEnum = (typeof SessionScalarFieldEnum)[keyof typeof SessionScalarFieldEnum]
-
-
-export const TimeEntryScalarFieldEnum = {
-  id: 'id',
-  organizationId: 'organizationId',
-  accountId: 'accountId',
-  employeeId: 'employeeId',
-  kind: 'kind',
-  startedAt: 'startedAt',
-  endedAt: 'endedAt',
-  note: 'note',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
-} as const
-
-export type TimeEntryScalarFieldEnum = (typeof TimeEntryScalarFieldEnum)[keyof typeof TimeEntryScalarFieldEnum]
 
 
 export const EventFeedCursorScalarFieldEnum = {
@@ -134,12 +117,4 @@ export const QueryMode = {
 } as const
 
 export type QueryMode = (typeof QueryMode)[keyof typeof QueryMode]
-
-
-export const NullsOrder = {
-  first: 'first',
-  last: 'last'
-} as const
-
-export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
 
