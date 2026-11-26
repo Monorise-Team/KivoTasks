@@ -10,7 +10,6 @@
       "bump-patch-for-minor-pre-major": true,
       "extra-files": [
         { "type": "json", "path": "apps/web/package.json", "jsonpath": "$.version" },
-        { "type": "json", "path": "apps/mobile/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "packages/contracts/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "packages/client/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "packages/db/package.json", "jsonpath": "$.version" }

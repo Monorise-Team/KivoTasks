@@ -2,7 +2,7 @@ name: Release Please
 
 # Każde wypchnięcie na prod (scalony pull request dev -> prod albo pilna poprawka) kończy się wydaniem, jeśli
 # commity coś wydają (ADR-0087). Release Please otwiera albo aktualizuje pull request wersji (jedna wersja
-# wszystkich części: package.json aplikacji i paczek; Expo czyta ją z package.json), ten workflow od razu
+# wszystkich części: package.json aplikacji i paczek), ten workflow od razu
 # go scala, a Release Please oznacza wydanie vX.Y.Z. Potem milestone wydania się zamyka, otwiera się następny,
 # a prod wraca do dev. Wdrożenia dojdą razem z infrastrukturą (ADR-0082).
 

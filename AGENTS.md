@@ -69,11 +69,22 @@ Zasady specyficzne dla repozytorium KivoTasks.
 
 ## Czym jest KivoTasks
 
-Zadania i projekty Monorise w przeglądarce, wzorem Linear (decyzja właściciela z 26.11.2026; ADR i karta produktu w MonoriseDocumentation). Logowanie, firmy, zespoły (jednostki z Core) i uprawnienia pochodzą z MonoriseCore. Układ repozytorium jak w TimoTime (ADR-0096): jedna aplikacja Next.js (`kivo.` strona i API `/api/v1`, `kivotasks.` aplikacja; lokalnie port 3500), `packages/contracts`, `packages/db` (Prisma, RLS, PostgreSQL na porcie 5436) i `packages/client`.
+Zadania i projekty Monorise wyłącznie w przeglądarce, wzorowane na Linear (ADR-0103; karta produktu w MonoriseDocumentation). Logowanie, firmy, zespoły (jednostki organizacyjne Core) i uprawnienia pochodzą z MonoriseCore. Układ repozytorium powtarza TimoTime (ADR-0096): `apps/web`, `packages/contracts`, `packages/client` i `packages/db`.
 
-## Zasady
+## Zasady kodu
 
-1. Repozytorium jest na starcie: szkielet powstaje według TimoTime (ten sam sposób logowania przez Core, uprawnień z migawki Core, RLS i `{ data, meta, error }`). Nie wymyślaj własnych rozwiązań tam, gdzie TimoTime ma gotowe.
-2. Zakres i kolejność etapów (szkielet, zadania, współpraca, planowanie, przegląd) są w karcie produktu w MonoriseDocumentation; nie wychodź poza bieżący etap bez zgłoszenia.
-3. Szczegóły (moduły, polecenia, przykłady) opisuj w `docs/agents/*.md` i linkuj stąd; ten plik ma zostać krótki.
-4. Zmiany w logowaniu, uprawnieniach i strukturze bazy scalamy dopiero po zgodzie właściciela projektu.
+1. **Osoba, pracownik i firma tylko z tokenu albo sesji** (`requireUser` w `apps/web/src/server/auth.ts`), nigdy z treści żądania ani adresu (ADR-0037). KivoTasks nie ma własnych kont.
+2. **Dane osób i firm tylko przez `withUser`** z `@kivotasks/db` i RLS. Każda nowa tabela domenowa z danymi osób albo firm dostaje w migracji `ENABLE` + `FORCE ROW LEVEL SECURITY` oraz test izolacji (`checkTenantIsolation`).
+3. **API** w formacie `{ data, meta, error }` ze stałymi kodami błędów (`@kivotasks/contracts`, w tym `PRODUCT_ACCESS_REQUIRED` i `PERMISSION_DENIED`); każda trasa przez `route()` (`apps/web/src/server/api.ts`) i opisana w `apps/web/src/server/routes.ts` (`pnpm openapi`, sprawdzane w `pnpm openapi:check`).
+4. **Komunikacja z MonoriseCore tylko przez `@monorise-team/sdk`** (`apps/web/src/server/core.ts`), bez ręcznego `fetch` do Core API (wyjątek: rejestracja w `apps/web/src/server/core-registration.ts`). W testach używaj `createFakeCore`, `defineProductContractTests` i `checkTenantIsolation` z `@monorise-team/testing`.
+5. **Uprawnienia i gotowe role deklarowane w kodzie** w `packages/contracts/src/permissions.ts` (`definePermissions("kivotasks", ...)` i `KIVOTASKS_ROLE_TEMPLATES`), rejestrowane przez `pnpm permissions:register`. Sprawdzanie wyłącznie w `apps/web/src/server/permissions.ts` na migawce z Core.
+6. **Wygląd** tylko z `@monorise-team/ui` i tokenów `@monorise-team/tokens` (ADR-0091), bez kolorów wpisywanych na sztywno.
+7. **Jedna wersja**: po zmianie zależności `@monorise-team/*` używaj `pnpm shared:update`; `pnpm check:versions` musi przechodzić.
+8. **Teksty interfejsu** po polsku, bez półpauz i myślników jako separatorów zdań.
+9. **Zakres etapów i zgody**: nie wychodź poza bieżący etap bez zgłoszenia; `pnpm check` wymaga lokalnego PostgreSQL (`pnpm db:up && pnpm db:migrate`); zmiany w logowaniu, uprawnieniach i strukturze bazy scalamy dopiero po zgodzie właściciela projektu.
+
+## Szczegóły
+
+- [Architektura, logowanie, uprawnienia i polecenia](docs/agents/architecture.md)
+- [Baza danych, migracje i RLS](docs/agents/database.md)
+- [API, OpenAPI i zestawy testów](docs/agents/api.md)

@@ -4,7 +4,6 @@ dist/
 out/
 .turbo/
 coverage/
-.expo/
 .data/
 .env
 .env.*
