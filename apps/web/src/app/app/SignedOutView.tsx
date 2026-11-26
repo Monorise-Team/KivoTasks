@@ -3,7 +3,9 @@
 import type { Me } from "@kivotasks/client";
 import { AppBackdrop, Banner, Button, Card, Skeleton } from "@monorise-team/ui";
 import { ListTodo, LogOut, RefreshCw } from "lucide-react";
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { sanitizeReturnTo } from "./app-views";
 
 function CenteredCardLayout({ children }: { children: ReactNode }) {
   return (
@@ -38,6 +40,9 @@ export function LoadingView() {
 
 /** Ekran wylogowany z opcjonalnym komunikatem o błędzie logowania z `AUTH_ERROR_MESSAGES`. */
 export function SignedOutView({ authError }: { authError: string | null }) {
+  const pathname = usePathname();
+  const returnTo = sanitizeReturnTo(pathname);
+
   return (
     <CenteredCardLayout>
       <h1 className="font-display text-2xl font-semibold">Zaloguj się do KivoTasks</h1>
@@ -47,7 +52,7 @@ export function SignedOutView({ authError }: { authError: string | null }) {
       </p>
       {authError ? <Banner tone="danger" message={authError} /> : null}
       <Button asChild variant="primary" size="lg" className="w-full">
-        <a href="/api/auth/sign-in?returnTo=/">Zaloguj się kontem Monorise</a>
+        <a href={`/api/auth/sign-in?returnTo=${encodeURIComponent(returnTo)}`}>Zaloguj się kontem Monorise</a>
       </Button>
     </CenteredCardLayout>
   );

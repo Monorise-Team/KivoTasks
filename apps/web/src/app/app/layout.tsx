@@ -2,6 +2,7 @@ import { appearanceInitScript } from "@monorise-team/ui";
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import "../globals.css";
+import { KivoTasksApp } from "./KivoTasksApp";
 
 export const metadata: Metadata = {
   title: "KivoTasks",
@@ -18,7 +19,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         {/* Zapisany tryb i motyw przed pierwszym malowaniem, bez mignięcia */}
         <script dangerouslySetInnerHTML={{ __html: appearanceInitScript }} />
       </head>
-      <body className="min-h-dvh">{children}</body>
+      <body className="min-h-dvh">
+        <KivoTasksApp>{children}</KivoTasksApp>
+      </body>
     </html>
   );
 }

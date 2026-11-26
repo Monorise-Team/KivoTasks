@@ -16,9 +16,9 @@ Zadania i projekty Monorise w przeglądarce, wzorowane zakresem funkcji na Linea
 Pierwsza wersja KivoTasks powstaje w pięciu etapach opisanych w karcie produktu (ADR-0103):
 
 - **Etap 0 (szkielet, gotowy):** układ repozytorium, logowanie przez MonoriseCore (BFF), `GET /api/v1/me` z `capabilities`, rejestracja uprawnień `kivotasks.*` i gotowych ról w Core, sprawdzanie dostępu (`Entitlement` i `AppAccess`), kanał zdarzeń Core (ADR-0100), powłoka aplikacji z paskiem bocznym, paletą `⌘K` i skrótami klawiszowymi z `@monorise-team/ui`, opis OpenAPI 3.1 oraz testy kontraktu i izolacji firm.
-- **Etap 1 (zadania, w toku):**
+- **Etap 1 (zadania, gotowy):**
   - **Etap 1a (model danych i API, gotowy):** zespoły oparte na jednostkach Core z krótkimi kluczami, domyślne i edytowalne statusy obiegu, etykiety zespołów, zadania z atomową numeracją (`KEY-number`), priorytetami, przypisaniem członków zespołu, podzadaniami bez cykli, relacjami (`BLOCKS`/`BLOCKED_BY`, `RELATED`, `DUPLICATE`), stronicowaniem kursorowym, filtrami, sortowaniem i wyszukiwaniem pełnotekstowym (`tsvector` + GIN) z RLS na wszystkich tabelach.
-  - **Etap 1b (interfejs, przed nami):** widoki listy i tablicy, szczegóły zadania, zarządzanie zespołami i akcje w palecie `⌘K`.
+  - **Etap 1b (interfejs, gotowy):** lista zadań zespołu (`/teams/[key]`) i „Moje zadania” (`/my-issues`) z filtrami w URL i stronicowaniem kursorowym, tablica Kanban (`/teams/[key]/board`) z przeciąganiem i menu klawiaturowym „Przenieś do…”, szczegóły zadania (`/issue/[identifier]`) z podzadaniami i relacjami, okno tworzenia zadania, lista i ustawienia zespołów (`/teams`, `/teams/[key]/settings`), paleta `⌘K` z wyszukiwaniem zadań oraz skróty klawiszowe (`c`, `/`, `g i`, `g t`, `g b`, `j`/`k`/`Enter`, `?`).
 - **Etap 2 (współpraca):** komentarze, historia zmian, załączniki, skrzynka powiadomień.
 - **Etap 3 (planowanie):** projekty ponad zespołami, cykle, triage, własne widoki, oś czasu.
 - **Etap 4 (przegląd):** mapy drogowe, inicjatywy, statystyki, szablony zadań, SLA, archiwum, import i integracje.

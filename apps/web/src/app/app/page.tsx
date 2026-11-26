@@ -1,7 +1,13 @@
-import { KivoTasksApp } from "./KivoTasksApp";
+import { Skeleton } from "@monorise-team/ui";
+import { Suspense } from "react";
+import { MyIssuesView } from "./components/IssueListView";
 
 export const dynamic = "force-dynamic";
 
 export default function AppPage() {
-  return <KivoTasksApp />;
+  return (
+    <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+      <MyIssuesView handleLegacyHash />
+    </Suspense>
+  );
 }
