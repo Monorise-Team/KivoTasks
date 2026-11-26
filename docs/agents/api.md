@@ -14,7 +14,7 @@ API KivoTasks działa pod ścieżką `/api/v1/*` na hoście `kivo.monorise.studi
 
 Uprawnienie obejmuje zespół, gdy efektywny zakres (`scopeOf` z `@monorise-team/permissions`) ma typ `ORGANIZATION` (w tym Owner firmy) albo `LIMITED` zawierający identyfikator jednostki zespołu (Core rozwija poddrzewa jednostek automatycznie).
 
-- Odczyt zadań, statusów, etykiet lub relacji zespołu: `kivotasks.issues.read` (dla listy zespołów, członków, statusów i etykiet także `kivotasks.teams.manage`) na zespole.
+- Odczyt zadań, statusów, etykiet lub relacji zespołu: `kivotasks.issues.read` albo `kivotasks.issues.write` na zespole (kto może pisać, ten też widzi; dla listy zespołów, członków, statusów i etykiet wystarcza również `kivotasks.teams.manage`).
 - Tworzenie, edycja i usuwanie zadań oraz relacji: `kivotasks.issues.write` na zespole (dla relacji między zespołami na obu zespołach).
 - Ustawienia zespołu (klucz, statusy, etykiety): `kivotasks.teams.manage` na zespole.
 - Tworzenie zespołu z jednostki Core i lista kandydatów: `kivotasks.teams.manage` w zakresie `ORGANIZATION`.
@@ -33,21 +33,21 @@ Trasy logowania BFF (poza `/api/v1`, bez koperty JSON): `GET /api/auth/sign-in`,
 
 ### Zespoły, statusy obiegu i etykiety (etap 1a)
 
-| Metoda i ścieżka                                 | Uwierzytelnienie | Opis                                                                                                                                                       |
-| ------------------------------------------------ | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/v1/teams`                              | `user`           | Lista zespołów dostępnych dla osoby (`issues.read` lub `teams.manage`). W sesji BFF odświeża buforowane nazwy z Core w jednym wywołaniu best-effort.       |
-| `POST /api/v1/teams`                             | `session`        | Tworzy zespół z aktywnej jednostki Core (`{ unitId, key }`, `teams.manage` w zakresie `ORGANIZATION`) wraz z 6 domyślnymi statusami obiegu.                |
-| `GET /api/v1/teams/candidates`                   | `session`        | Aktywne jednostki Core, które nie są jeszcze zespołami (`teams.manage` w zakresie `ORGANIZATION`).                                                         |
-| `PATCH /api/v1/teams/{teamId}`                   | `user`           | Zmienia klucz zespołu (`teams.manage`); identyfikatory zadań zmieniają się wraz z kluczem.                                                                 |
-| `GET /api/v1/teams/{teamId}/members`             | `user`           | Aktywni członkowie jednostki Core posiadający konto (`accountId`, `employeeId`, `firstName`, `lastName`) z katalogu produktu Core (`core:directory.read`). |
-| `GET /api/v1/teams/{teamId}/states`              | `user`           | Lista aktywnych statusów obiegu zespołu posortowanych po `position`.                                                                                       |
-| `POST /api/v1/teams/{teamId}/states`             | `user`           | Dodaje status obiegu do zespołu (`teams.manage`).                                                                                                          |
-| `PATCH /api/v1/teams/{teamId}/states/{stateId}`  | `user`           | Edytuje status obiegu (`teams.manage`); blokuje opuszczenie ostatniego statusu `BACKLOG`/`UNSTARTED` kodem `409 CONFLICT`.                                 |
-| `DELETE /api/v1/teams/{teamId}/states/{stateId}` | `user`           | Usuwa status obiegu (`204`); zwraca `409 CONFLICT`, gdy używają go aktywne zadania lub jest ostatnim statusem `BACKLOG`/`UNSTARTED`.                       |
-| `GET /api/v1/teams/{teamId}/labels`              | `user`           | Lista aktywnych etykiet zespołu.                                                                                                                           |
-| `POST /api/v1/teams/{teamId}/labels`             | `user`           | Dodaje etykietę (`teams.manage`); unikalność nazwy bez rozróżniania wielkości liter w obrębie zespołu (`409 CONFLICT`).                                    |
-| `PATCH /api/v1/teams/{teamId}/labels/{labelId}`  | `user`           | Edytuje etykietę zespołu (`teams.manage`).                                                                                                                 |
-| `DELETE /api/v1/teams/{teamId}/labels/{labelId}` | `user`           | Usuwa etykietę i odpina ją od zadań (`204`).                                                                                                               |
+| Metoda i ścieżka                                 | Uwierzytelnienie | Opis                                                                                                                                                                 |
+| ------------------------------------------------ | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/teams`                              | `user`           | Lista zespołów dostępnych dla osoby (`issues.read`, `issues.write` lub `teams.manage`). W sesji BFF odświeża buforowane nazwy z Core w jednym wywołaniu best-effort. |
+| `POST /api/v1/teams`                             | `session`        | Tworzy zespół z aktywnej jednostki Core (`{ unitId, key }`, `teams.manage` w zakresie `ORGANIZATION`) wraz z 6 domyślnymi statusami obiegu.                          |
+| `GET /api/v1/teams/candidates`                   | `session`        | Aktywne jednostki Core, które nie są jeszcze zespołami (`teams.manage` w zakresie `ORGANIZATION`).                                                                   |
+| `PATCH /api/v1/teams/{teamId}`                   | `user`           | Zmienia klucz zespołu (`teams.manage`); identyfikatory zadań zmieniają się wraz z kluczem.                                                                           |
+| `GET /api/v1/teams/{teamId}/members`             | `user`           | Aktywni członkowie jednostki Core posiadający konto (`accountId`, `employeeId`, `firstName`, `lastName`) z katalogu produktu Core (`core:directory.read`).           |
+| `GET /api/v1/teams/{teamId}/states`              | `user`           | Lista aktywnych statusów obiegu zespołu posortowanych po `position`.                                                                                                 |
+| `POST /api/v1/teams/{teamId}/states`             | `user`           | Dodaje status obiegu do zespołu (`teams.manage`).                                                                                                                    |
+| `PATCH /api/v1/teams/{teamId}/states/{stateId}`  | `user`           | Edytuje status obiegu (`teams.manage`); blokuje opuszczenie ostatniego statusu `BACKLOG`/`UNSTARTED` kodem `409 CONFLICT`.                                           |
+| `DELETE /api/v1/teams/{teamId}/states/{stateId}` | `user`           | Usuwa status obiegu (`204`); zwraca `409 CONFLICT`, gdy używają go aktywne zadania lub jest ostatnim statusem `BACKLOG`/`UNSTARTED`.                                 |
+| `GET /api/v1/teams/{teamId}/labels`              | `user`           | Lista aktywnych etykiet zespołu.                                                                                                                                     |
+| `POST /api/v1/teams/{teamId}/labels`             | `user`           | Dodaje etykietę (`teams.manage`); unikalność nazwy bez rozróżniania wielkości liter w obrębie zespołu (`409 CONFLICT`).                                              |
+| `PATCH /api/v1/teams/{teamId}/labels/{labelId}`  | `user`           | Edytuje etykietę zespołu (`teams.manage`).                                                                                                                           |
+| `DELETE /api/v1/teams/{teamId}/labels/{labelId}` | `user`           | Usuwa etykietę i odpina ją od zadań (`204`).                                                                                                                         |
 
 ### Zadania, relacje i wyszukiwanie (etap 1a)
 

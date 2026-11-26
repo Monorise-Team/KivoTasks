@@ -343,6 +343,77 @@ async function lockTeamIssueHierarchy(tx: Tx, teamId: string): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('issue_hierarchy:' || ${teamId}::uuid::text, 0))`;
 }
 
+/*
+ * Blokady wierszy przeciw wyścigom z archiwizacją: kto przypisuje zadaniu status albo etykietę, trzyma wiersz
+ * FOR SHARE, a archiwizacja bierze FOR UPDATE i dopiero potem liczy zadania. Klucz obcy bierze tylko
+ * FOR KEY SHARE, które nie koliduje ze zmianą `archived_at`, więc sam nie wystarcza.
+ */
+type LockedState = { id: string; category: WorkflowStateCategory };
+
+async function lockActiveState(
+  tx: Tx,
+  teamId: string,
+  stateId: string,
+  mode: "SHARE" | "UPDATE",
+): Promise<LockedState | null> {
+  const lock = mode === "SHARE" ? Prisma.sql`FOR SHARE` : Prisma.sql`FOR UPDATE`;
+  const rows = await tx.$queryRaw<LockedState[]>`
+    SELECT "id"::text AS "id", "category"::text AS "category"
+    FROM "public"."workflow_states"
+    WHERE "id" = ${stateId}::uuid AND "team_id" = ${teamId}::uuid AND "archived_at" IS NULL
+    ${lock}
+  `;
+  return rows[0] ?? null;
+}
+
+/** Domyślny status nowego zadania: pierwszy Backlog, a bez niego pierwszy „Do zrobienia” (FOR SHARE). */
+async function lockDefaultState(tx: Tx, teamId: string): Promise<LockedState | null> {
+  // Gdy wybrany wiersz zarchiwizowano w trakcie czekania na blokadę, zapytanie zwraca pusto: próbujemy raz jeszcze
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const rows = await tx.$queryRaw<LockedState[]>`
+      SELECT "id"::text AS "id", "category"::text AS "category"
+      FROM "public"."workflow_states"
+      WHERE "team_id" = ${teamId}::uuid
+        AND "archived_at" IS NULL
+        AND "category" IN ('BACKLOG'::"public"."WorkflowStateCategory", 'UNSTARTED'::"public"."WorkflowStateCategory")
+      ORDER BY CASE WHEN "category" = 'BACKLOG'::"public"."WorkflowStateCategory" THEN 0 ELSE 1 END,
+               "position" ASC, "created_at" ASC
+      LIMIT 1
+      FOR SHARE
+    `;
+    if (rows[0]) return rows[0];
+  }
+  return null;
+}
+
+/** Blokuje FOR SHARE aktywne etykiety zespołu i zwraca, ile z podanych istnieje. */
+async function lockActiveLabels(tx: Tx, teamId: string, labelIds: readonly string[]): Promise<number> {
+  if (labelIds.length === 0) return 0;
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT "id"::text AS "id"
+    FROM "public"."labels"
+    WHERE "id" = ANY(${[...labelIds]}::uuid[]) AND "team_id" = ${teamId}::uuid AND "archived_at" IS NULL
+    FOR SHARE
+  `;
+  return rows.length;
+}
+
+/** Blokuje FOR SHARE aktywne zadanie w aktywnym zespole; `null`, gdy go nie ma albo usunięto je w międzyczasie. */
+async function lockActiveIssue(tx: Tx, issueId: string): Promise<{ id: string; teamId: string } | null> {
+  const rows = await tx.$queryRaw<{ id: string; teamId: string }[]>`
+    SELECT i."id"::text AS "id", i."team_id"::text AS "teamId"
+    FROM "public"."issues" i
+    JOIN "public"."teams" t ON t."id" = i."team_id"
+    WHERE i."id" = ${issueId}::uuid AND i."deleted_at" IS NULL AND t."archived_at" IS NULL
+    FOR SHARE OF i
+  `;
+  return rows[0] ?? null;
+}
+
+const LABELS_OUTSIDE_TEAM = new ApiFailure(422, "VALIDATION_FAILED", "Niepoprawne dane", [
+  { field: "labelIds", message: "Wszystkie etykiety muszą należeć do tego samego zespołu" },
+]);
+
 export const prismaIssuesStore: IssuesStore = {
   async listTeams(actor, scope) {
     if (scope !== "ALL" && scope.length === 0) return [];
@@ -537,9 +608,8 @@ export const prismaIssuesStore: IssuesStore = {
   async deleteWorkflowState(actor, teamId, stateId) {
     return withUser(getDb(), actor, async (tx) => {
       await lockTeamStates(tx, teamId);
-      const existing = await tx.workflowState.findFirst({
-        where: { id: stateId, teamId, archivedAt: null },
-      });
+      // FOR UPDATE czeka na transakcje, które właśnie przypisują ten status, więc liczenie poniżej je widzi
+      const existing = await lockActiveState(tx, teamId, stateId, "UPDATE");
       if (!existing) return false;
 
       const activeIssuesCount = await tx.issue.count({
@@ -660,11 +730,13 @@ export const prismaIssuesStore: IssuesStore = {
 
   async deleteLabel(actor, teamId, labelId) {
     return withUser(getDb(), actor, async (tx) => {
-      const existing = await tx.label.findFirst({
-        where: { id: labelId, teamId, archivedAt: null },
-        select: { id: true },
-      });
-      if (!existing) return false;
+      // FOR UPDATE czeka na transakcje, które właśnie dodają tę etykietę do zadania
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id"::text AS "id" FROM "public"."labels"
+        WHERE "id" = ${labelId}::uuid AND "team_id" = ${teamId}::uuid AND "archived_at" IS NULL
+        FOR UPDATE
+      `;
+      if (locked.length === 0) return false;
       await tx.issueLabel.deleteMany({ where: { labelId } });
       await tx.label.update({
         where: { id: labelId },
@@ -777,51 +849,32 @@ export const prismaIssuesStore: IssuesStore = {
 
   async createIssue(actor, input: CreateIssueStoreInput) {
     return withUser(getDb(), actor, async (tx) => {
-      // 1. Rozwiąż status (podany lub domyślny BACKLOG -> UNSTARTED)
-      let state: { id: string; category: WorkflowStateCategory } | null;
+      // 1. Rozwiąż status (podany lub domyślny BACKLOG -> UNSTARTED) i zablokuj go przed archiwizacją
+      let state: LockedState | null;
       if (input.stateId) {
-        state = await tx.workflowState.findFirst({
-          where: { id: input.stateId, teamId: input.teamId, archivedAt: null },
-          select: { id: true, category: true },
-        });
+        state = await lockActiveState(tx, input.teamId, input.stateId, "SHARE");
         if (!state) {
           throw new ApiFailure(422, "VALIDATION_FAILED", "Niepoprawne dane", [
             { field: "stateId", message: "Wybrany status nie należy do tego zespołu" },
           ]);
         }
       } else {
-        state =
-          (await tx.workflowState.findFirst({
-            where: { teamId: input.teamId, category: "BACKLOG", archivedAt: null },
-            orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-            select: { id: true, category: true },
-          })) ??
-          (await tx.workflowState.findFirst({
-            where: { teamId: input.teamId, category: "UNSTARTED", archivedAt: null },
-            orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-            select: { id: true, category: true },
-          }));
+        state = await lockDefaultState(tx, input.teamId);
         if (!state) {
           throw new ApiFailure(409, "CONFLICT", "Zespół nie ma domyślnego statusu dla nowych zadań");
         }
       }
 
-      // 2. Sprawdź etykiety (muszą należeć do tego samego zespołu)
+      // 2. Sprawdź etykiety (muszą należeć do tego samego zespołu) i zablokuj je przed archiwizacją
       const uniqueLabelIds = [...new Set(input.labelIds)];
-      if (uniqueLabelIds.length > 0) {
-        const foundLabels = await tx.label.findMany({
-          where: { id: { in: uniqueLabelIds }, teamId: input.teamId, archivedAt: null },
-          select: { id: true },
-        });
-        if (foundLabels.length !== uniqueLabelIds.length) {
-          throw new ApiFailure(422, "VALIDATION_FAILED", "Niepoprawne dane", [
-            { field: "labelIds", message: "Wszystkie etykiety muszą należeć do tego samego zespołu" },
-          ]);
-        }
+      if ((await lockActiveLabels(tx, input.teamId, uniqueLabelIds)) !== uniqueLabelIds.length) {
+        throw LABELS_OUTSIDE_TEAM;
       }
 
-      // 3. Sprawdź zadanie nadrzędne (ten sam zespół, nieusunięte)
+      // 3. Sprawdź zadanie nadrzędne (ten sam zespół, nieusunięte) pod blokadą hierarchii zespołu,
+      // żeby równoległe usunięcie rodzica nie zostawiło nowego podzadania przy usuniętym zadaniu
       if (input.parentId !== null) {
+        await lockTeamIssueHierarchy(tx, input.teamId);
         const parent = await tx.issue.findFirst({
           where: { id: input.parentId, teamId: input.teamId, deletedAt: null },
           select: { id: true },
@@ -947,10 +1000,7 @@ export const prismaIssuesStore: IssuesStore = {
 
       let nextTimestamps: { startedAt: Date | null; completedAt: Date | null; canceledAt: Date | null } | undefined;
       if (input.stateId !== undefined && input.stateId !== existing.stateId) {
-        const targetState = await tx.workflowState.findFirst({
-          where: { id: input.stateId, teamId: existing.teamId, archivedAt: null },
-          select: { id: true, category: true },
-        });
+        const targetState = await lockActiveState(tx, existing.teamId, input.stateId, "SHARE");
         if (!targetState) {
           throw new ApiFailure(422, "VALIDATION_FAILED", "Niepoprawne dane", [
             { field: "stateId", message: "Wybrany status nie należy do tego zespołu" },
@@ -998,16 +1048,8 @@ export const prismaIssuesStore: IssuesStore = {
 
       if (input.labelIds !== undefined) {
         const uniqueLabelIds = [...new Set(input.labelIds)];
-        if (uniqueLabelIds.length > 0) {
-          const foundLabels = await tx.label.findMany({
-            where: { id: { in: uniqueLabelIds }, teamId: existing.teamId, archivedAt: null },
-            select: { id: true },
-          });
-          if (foundLabels.length !== uniqueLabelIds.length) {
-            throw new ApiFailure(422, "VALIDATION_FAILED", "Niepoprawne dane", [
-              { field: "labelIds", message: "Wszystkie etykiety muszą należeć do tego samego zespołu" },
-            ]);
-          }
+        if ((await lockActiveLabels(tx, existing.teamId, uniqueLabelIds)) !== uniqueLabelIds.length) {
+          throw LABELS_OUTSIDE_TEAM;
         }
         await tx.issueLabel.deleteMany({ where: { issueId } });
         if (uniqueLabelIds.length > 0) {
@@ -1050,17 +1092,37 @@ export const prismaIssuesStore: IssuesStore = {
 
   async softDeleteIssue(actor, issueId) {
     return withUser(getDb(), actor, async (tx) => {
+      const target = await tx.issue.findFirst({
+        where: { id: issueId, deletedAt: null },
+        select: { teamId: true },
+      });
+      if (!target) return false;
+      // Pod blokadą hierarchii: podzadania stają się zadaniami głównymi, a usunięte zadanie traci rodzica,
+      // więc nie zostają odwołania do usuniętych zadań ani ukryte cykle
+      await lockTeamIssueHierarchy(tx, target.teamId);
       const updated = await tx.issue.updateMany({
         where: { id: issueId, deletedAt: null },
-        data: { deletedAt: new Date() },
+        data: { deletedAt: new Date(), parentId: null },
       });
-      return updated.count > 0;
+      if (updated.count === 0) return false;
+      await tx.issue.updateMany({
+        where: { parentId: issueId, deletedAt: null },
+        data: { parentId: null },
+      });
+      return true;
     });
   },
 
   async createIssueRelation(actor, input) {
     try {
       return await withUser(getDb(), actor, async (tx) => {
+        // Oba zadania muszą nadal istnieć: blokada FOR SHARE czeka na równoległe usunięcie i widzi jego wynik
+        const source = await lockActiveIssue(tx, input.storedIssueId);
+        const target = await lockActiveIssue(tx, input.storedRelatedIssueId);
+        if (!source || !target) {
+          throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono zadania");
+        }
+
         if (input.storedType === "RELATED") {
           const existingSymmetric = await tx.issueRelation.findFirst({
             where: {

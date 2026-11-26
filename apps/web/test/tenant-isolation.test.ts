@@ -7,6 +7,7 @@
  */
 import { checkTenantIsolation, formatViolations } from "@monorise-team/testing";
 import { uuidv7, withUser, type Actor } from "@kivotasks/db";
+import { ApiFailure } from "@/server/api";
 import { afterAll, describe, expect, it } from "vitest";
 import { getDb } from "@/server/db";
 import { prismaIssuesStore } from "@/server/issues-store-prisma";
@@ -147,6 +148,102 @@ describe("Separacja firm w bazie danych (checkTenantIsolation, ADR-0037)", () =>
         limit: 20,
       });
       expect(search[0]?.identifier).toBe("MAG-5");
+    } finally {
+      await cleanupTenant(actor);
+    }
+  });
+});
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function expectApiFailure(promise: Promise<unknown>, status: number): Promise<void> {
+  const error = await promise.then(
+    () => null,
+    (caught: unknown) => caught,
+  );
+  expect(error).toBeInstanceOf(ApiFailure);
+  expect((error as ApiFailure).status).toBe(status);
+}
+
+describe("Blokady przy archiwizacji statusu (wyścig z przypisaniem zadania)", () => {
+  async function teamWithStartedState(actor: Actor): Promise<{ teamId: string; stateId: string }> {
+    const teamId = uuidv7();
+    await prismaIssuesStore.createTeamWithDefaultStates(actor, { id: teamId, key: "MAG", name: "Magazyn" });
+    const states = await prismaIssuesStore.listWorkflowStates(actor, teamId);
+    const started = states.find((state) => state.category === "STARTED");
+    if (!started) throw new Error("Brak statusu STARTED");
+    return { teamId, stateId: started.id };
+  }
+
+  it("archiwizacja czeka na transakcję, która właśnie przypisuje status, i wtedy odmawia (409)", async () => {
+    const actor: Actor = { organizationId: uuidv7(), accountId: uuidv7() };
+    try {
+      const { teamId, stateId } = await teamWithStartedState(actor);
+      let markLocked!: () => void;
+      const locked = new Promise<void>((resolve) => (markLocked = resolve));
+
+      // Transakcja A trzyma status FOR SHARE (jak createIssue) i dopiero po chwili zapisuje zadanie
+      const assigning = withUser(getDb(), actor, async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "public"."workflow_states" WHERE "id" = ${stateId}::uuid FOR SHARE`;
+        markLocked();
+        await sleep(300);
+        await tx.issue.create({
+          data: {
+            id: uuidv7(),
+            organizationId: actor.organizationId,
+            teamId,
+            number: 999,
+            title: "Zadanie w trakcie zapisu",
+            stateId,
+            creatorAccountId: actor.accountId,
+          },
+        });
+      });
+
+      await locked;
+      await expectApiFailure(prismaIssuesStore.deleteWorkflowState(actor, teamId, stateId), 409);
+      await assigning;
+
+      const states = await prismaIssuesStore.listWorkflowStates(actor, teamId);
+      expect(states.some((state) => state.id === stateId)).toBe(true);
+    } finally {
+      await cleanupTenant(actor);
+    }
+  });
+
+  it("nowe zadanie czeka na trwającą archiwizację statusu i wtedy go odrzuca (422)", async () => {
+    const actor: Actor = { organizationId: uuidv7(), accountId: uuidv7() };
+    try {
+      const { teamId, stateId } = await teamWithStartedState(actor);
+      let markLocked!: () => void;
+      const locked = new Promise<void>((resolve) => (markLocked = resolve));
+
+      // Transakcja B archiwizuje status (jak deleteWorkflowState) i zatwierdza po chwili
+      const archiving = withUser(getDb(), actor, async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "public"."workflow_states" WHERE "id" = ${stateId}::uuid FOR UPDATE`;
+        markLocked();
+        await sleep(300);
+        await tx.workflowState.update({ where: { id: stateId }, data: { archivedAt: new Date() } });
+      });
+
+      await locked;
+      await expectApiFailure(
+        prismaIssuesStore.createIssue(actor, {
+          teamId,
+          title: "Zadanie do zarchiwizowanego statusu",
+          description: null,
+          stateId,
+          priority: 0,
+          assigneeAccountId: null,
+          creatorAccountId: actor.accountId,
+          labelIds: [],
+          dueDate: null,
+          estimate: null,
+          parentId: null,
+        }),
+        422,
+      );
+      await archiving;
     } finally {
       await cleanupTenant(actor);
     }

@@ -128,4 +128,28 @@ describe("pomocniki domeny zadań (issue-helpers)", () => {
     expect(() => decodeIssueCursor(updatedCursor, "priority")).toThrow(ApiFailure);
     expect(() => decodeIssueCursor("nie-jest-kursorem!!!", "updated")).toThrow(ApiFailure);
   });
+
+  it("odrzuca kursor z niemożliwą datą albo rokiem spoza zakresu bazy (422, a nie błąd PostgreSQL)", () => {
+    const id = "019a0000-0000-7000-8000-000000000001";
+    const forge = (payload: Record<string, unknown>) =>
+      Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+
+    const badDay = forge({ s: "dueDate", d: "2026-99-99", u: "2026-11-26T10:00:00.000Z", id });
+    const farPast = forge({ s: "updated", u: "-010000-01-01T00:00:00.000Z", id });
+    const noZone = forge({ s: "created", c: "2026-11-26 10:00", id });
+
+    for (const [cursor, sort] of [
+      [badDay, "dueDate"],
+      [farPast, "updated"],
+      [noZone, "created"],
+    ] as const) {
+      try {
+        decodeIssueCursor(cursor, sort);
+        expect.unreachable("kursor powinien zostać odrzucony");
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiFailure);
+        expect((error as ApiFailure).status).toBe(422);
+      }
+    }
+  });
 });

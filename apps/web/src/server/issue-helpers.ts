@@ -1,4 +1,5 @@
 import {
+  DateOnlyString,
   ISSUE_SORT_OPTIONS,
   type IssueReference,
   type IssueRelationType,
@@ -150,8 +151,10 @@ export function toIssueRelationView(
 
 // ── Stronicowanie kursorowe dla wszystkich trybów sortowania ────────────────
 
-const IsoDateTimeSchema = z.string().refine((v) => !Number.isNaN(Date.parse(v)), "Nieprawidłowy znacznik czasu");
-const DateYmdSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+// Tylko postać z toISOString() (4 cyfry roku, UTC) i prawdziwe daty kalendarzowe: inne wartości dawałyby
+// błąd PostgreSQL (500) zamiast odrzucenia kursora (422)
+const IsoDateTimeSchema = z.iso.datetime();
+const DateYmdSchema = DateOnlyString;
 
 const IssueCursorSchema = z.discriminatedUnion("s", [
   z.object({ s: z.literal("updated"), u: IsoDateTimeSchema, id: z.uuid() }),

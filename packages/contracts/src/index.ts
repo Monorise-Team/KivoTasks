@@ -170,6 +170,9 @@ export const DateOnlyString = z
   .refine(isRealCalendarDate, "Podaj poprawną datę kalendarzową");
 export type DateOnlyString = z.infer<typeof DateOnlyString>;
 
+/** Górna granica pozycji statusu (kolumna INTEGER w bazie, z zapasem na kolejne statusy). */
+export const WORKFLOW_STATE_POSITION_MAX = 1_000_000;
+
 export const WORKFLOW_STATE_CATEGORIES = ["BACKLOG", "UNSTARTED", "STARTED", "COMPLETED", "CANCELED"] as const;
 export const WorkflowStateCategory = z.enum(WORKFLOW_STATE_CATEGORIES);
 export type WorkflowStateCategory = z.infer<typeof WorkflowStateCategory>;
@@ -302,7 +305,7 @@ export const CreateWorkflowStateInput = z.object({
   name: z.string().trim().min(1, "Nazwa statusu jest wymagana").max(40, "Nazwa statusu może mieć najwyżej 40 znaków"),
   category: WorkflowStateCategory,
   color: ColorToken,
-  position: z.number().int().min(0).optional(),
+  position: z.number().int().min(0).max(WORKFLOW_STATE_POSITION_MAX).optional(),
 });
 export type CreateWorkflowStateInput = z.input<typeof CreateWorkflowStateInput>;
 
@@ -315,7 +318,7 @@ export const UpdateWorkflowStateInput = z.object({
     .optional(),
   category: WorkflowStateCategory.optional(),
   color: ColorToken.optional(),
-  position: z.number().int().min(0).optional(),
+  position: z.number().int().min(0).max(WORKFLOW_STATE_POSITION_MAX).optional(),
 });
 export type UpdateWorkflowStateInput = z.input<typeof UpdateWorkflowStateInput>;
 

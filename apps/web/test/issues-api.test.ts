@@ -496,6 +496,42 @@ describe("zadania: numeracja, statusy domyślne, znaczniki czasu, przypisanie i 
 });
 
 describe("podzadania, cykle i relacje między zadaniami", () => {
+  it("usunięcie zadania nadrzędnego odpina jego podzadania, które wracają na listę zadań głównych", async () => {
+    const parent = (
+      await call(issuesRoute.POST, "/issues", {
+        method: "POST",
+        body: { teamId: unitMagazynId, title: "Remont rampy" },
+        token: ownerToken,
+      })
+    ).body.data;
+    const child = (
+      await call(issuesRoute.POST, "/issues", {
+        method: "POST",
+        body: { teamId: unitMagazynId, title: "Zamówić beton", parentId: parent.id },
+        token: ownerToken,
+      })
+    ).body.data;
+
+    const deleted = await call(
+      issueByIdRoute.DELETE,
+      `/issues/${parent.id}`,
+      { method: "DELETE", token: ownerToken },
+      { issueId: parent.id },
+    );
+    expect(deleted.status).toBe(204);
+
+    const fetched = await call(issueByIdRoute.GET, `/issues/${child.id}`, { token: ownerToken }, { issueId: child.id });
+    expect(fetched.status).toBe(200);
+    expect(fetched.body.data.parentId).toBeNull();
+    expect(fetched.body.data.parent).toBeNull();
+
+    const topLevel = await call(issuesRoute.GET, `/issues?teamId=${unitMagazynId}&parentId=none`, {
+      token: ownerToken,
+    });
+    expect(topLevel.status).toBe(200);
+    expect(topLevel.body.data.map((issue: { id: string }) => issue.id)).toContain(child.id);
+  });
+
   it("obsługuje podzadania w tym samym zespole oraz blokuje podzadania między zespołami i cykle", async () => {
     const a = (
       await call(issuesRoute.POST, "/issues", {

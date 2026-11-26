@@ -676,6 +676,19 @@ describe("API statusów obiegu i etykiet zespołu", () => {
     await call(teamsRoute.POST, "/teams", { method: "POST", body: { unitId: unitFinanseId, key: "FIN" } });
 
     const ownerToken = await tokenFor(owner);
+    // Pozycja statusu ma górną granicę (kolumna INTEGER), więc zbyt duża daje 422, a nie błąd bazy
+    const tooFar = await call(
+      statesRoute.POST,
+      `/teams/${unitMagazynId}/states`,
+      {
+        method: "POST",
+        body: { name: "Daleko", category: "STARTED", color: "blue", position: 3_000_000_000 },
+        token: ownerToken,
+      },
+      { teamId: unitMagazynId },
+    );
+    expect(tooFar.status).toBe(422);
+
     const created = await call(
       labelsRoute.POST,
       `/teams/${unitMagazynId}/labels`,
