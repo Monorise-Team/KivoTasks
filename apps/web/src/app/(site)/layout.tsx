@@ -4,9 +4,9 @@ import "../globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.KIVOTASKS_API_URL ?? "https://kivo.monorise.studio"),
-  title: "KivoTasks: ewidencja czasu pracy w przeglądarce i na telefonie",
+  title: "KivoTasks: zadania i projekty dla zespołów w przeglądarce",
   description:
-    "KivoTasks rejestruje czas pracy, przerwy, pracę zdalną i wyjścia służbowe w przeglądarce i na telefonie, z logowaniem kontem Monorise.",
+    "KivoTasks to zadania i projekty Monorise w przeglądarce, wzorowane na Linear, z zespołami ze struktury firmy i logowaniem kontem Monorise.",
   alternates: { canonical: "/" },
 };
 

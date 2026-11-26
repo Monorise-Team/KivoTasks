@@ -1,28 +1,28 @@
 import { AppBackdrop, Badge, Button, Card } from "@monorise-team/ui";
-import { Clock, Coffee, MonitorSmartphone, Smartphone } from "lucide-react";
+import { FolderKanban, ListTodo, ShieldCheck, Users } from "lucide-react";
 
 const APP_URL = process.env.KIVOTASKS_APP_URL ?? "https://kivotasks.monorise.studio";
 
 const HIGHLIGHTS = [
   {
-    icon: <Clock />,
-    title: "Start i stop jednym kliknięciem",
-    body: "Rozpoczynasz pracę, przerwę, pracę zdalną albo wyjście służbowe. Przełączenie statusu zamyka poprzedni wpis automatycznie.",
+    icon: <ListTodo />,
+    title: "Zadania i szybka praca klawiaturą",
+    body: "Lista i tablica zadań, priorytety, etykiety, podzadania, relacje oraz paleta poleceń i skróty klawiszowe bez ciężkiej konfiguracji.",
   },
   {
-    icon: <Coffee />,
-    title: "Przejrzysta lista dnia i tygodnia",
-    body: "Widzisz wszystkie swoje wpisy z dzisiaj i z bieżącego tygodnia wraz z czasem trwania oraz sumami dla każdego dnia.",
+    icon: <Users />,
+    title: "Zespoły ze struktury firmy",
+    body: "Zespoły pochodzą z jednostek w MonoriseCore i dostają krótkie klucze do numeracji zadań.",
   },
   {
-    icon: <MonitorSmartphone />,
-    title: "Przeglądarka i telefon",
-    body: "Pracujesz przy biurku albo w magazynie: oba miejsca łączą się z tym samym kontem Monorise i tym samym API.",
+    icon: <FolderKanban />,
+    title: "Projekty i udostępnianie",
+    body: "Projekty przekrojowe ponad zespołami oraz bezpieczne udostępnianie pojedynczego projektu osobom spoza zespołu z rolą Gość.",
   },
   {
-    icon: <Smartphone />,
+    icon: <ShieldCheck />,
     title: "Jedno logowanie Monorise",
-    body: "Bez osobnych haseł. Konto pracownika i firma pochodzą bezpośrednio z MonoriseCore.",
+    body: "Bez osobnych haseł i kont. Logowanie, dostęp do produktu oraz uprawnienia pochodzą bezpośrednio z MonoriseCore.",
   },
 ];
 
@@ -33,7 +33,7 @@ export default function ProductPage() {
       <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-6">
         <a href="/" className="flex items-center gap-2 text-sm font-semibold tracking-wide uppercase">
           <span className="mr-glow flex size-8 items-center justify-center rounded-xl bg-accent text-accent-fg">
-            <Clock className="size-4" aria-hidden />
+            <ListTodo className="size-4" aria-hidden />
           </span>
           KivoTasks
         </a>
@@ -45,14 +45,14 @@ export default function ProductPage() {
       <main id="main" className="mx-auto flex max-w-5xl flex-col gap-16 px-6 pt-10 pb-20">
         <section className="mr-enter flex max-w-2xl flex-col gap-5">
           <Badge tone="accent" className="w-fit px-2.5">
-            Pierwsza wersja
+            W budowie · Etap 0
           </Badge>
           <h1 className="font-display text-4xl leading-tight font-semibold tracking-tight sm:text-5xl">
-            Ewidencja czasu pracy dla zespołu w biurze i w terenie
+            Zadania i projekty dla zespołów w przeglądarce
           </h1>
           <p className="text-lg leading-relaxed text-text-secondary">
-            KivoTasks zapisuje rozpoczęcie i zakończenie pracy, przerwy, pracę zdalną oraz wyjścia służbowe. Jedno konto
-            Monorise w przeglądarce i na telefonie.
+            KivoTasks to szybkie zarządzanie zadaniami i projektami wzorowane na Linear, połączone ze strukturą zespołów
+            w MonoriseCore. Jedno konto Monorise, praca wyłącznie w przeglądarce.
           </p>
           <div className="flex flex-wrap gap-3">
             <Button asChild variant="primary" size="lg" className="rounded-full">
@@ -63,7 +63,7 @@ export default function ProductPage() {
 
         <section aria-labelledby="mozliwosci-tytul" className="flex flex-col gap-5">
           <h2 id="mozliwosci-tytul" className="font-display text-2xl font-semibold">
-            Co zawiera pierwsza wersja
+            Dla zespołów w Monorise
           </h2>
           <div className="grid gap-card sm:grid-cols-2">
             {HIGHLIGHTS.map((item) => (
