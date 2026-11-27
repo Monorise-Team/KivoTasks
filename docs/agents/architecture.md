@@ -25,8 +25,12 @@ KivoTasks jest produktem Monorise do zarządzania zadaniami i projektami w przeg
 - **Tożsamość żądania:** wyłącznie `requireUser(request)` w `src/server/auth.ts`. Zwraca `Caller` (`organizationId`, `accountId`, `employeeId`, `context`, `session`, `token`).
 - **Klient Core SDK (`src/server/core.ts` i `src/server/core-machine.ts`):**
   - `createUserCoreClient(session)`: wywołania w imieniu zalogowanej osoby (`GET /core/v1/me` dla `GET /api/v1/me`).
-  - `getMachineCoreClient()`: token maszynowy OAuth 2.1 (`client_credentials`, zakresy `core:permissions.read core:directory.read core:events.read`), buforowany do 30 s przed wygaśnięciem z pojedynczym odświeżaniem w locie (`single-flight`).
-  - Oba klienty ponawiają żądania przy krótkich błędach sieci i statusach `429`, `502`, `503`, `504` (`DEFAULT_CORE_RETRY`: 3 próby, 200 do 2000 ms). Przy trwałej awarii serwer odmawia bezpiecznie kodem `503` (fail-closed).
+  - `getMachineCoreClient()`: token maszynowy OAuth 2.1 (`client_credentials`, zakresy `core:permissions.read core:directory.read core:events.read core:notifications.send`), buforowany do 30 s przed wygaśnięciem z pojedynczym odświeżaniem w locie (`single-flight`).
+  - Oba klienty ponawiają żądania przy krótkich błędach sieci i statusach `429`, `502`, `503`, `504` (`DEFAULT_CORE_RETRY`: 3 próby, 200 do 2000 ms). Przy trwałej awarii serwer odmawia bezpiecznie kodem `503` (fail-closed), z wyjątkiem wywołań best-effort (odświeżanie nazw zespołów i powiadomienia e-mail).
+- **Powiadomienia e-mail (`src/server/notifications.ts`, ADR-0048):**
+  - Po zapisaniu nowego zadania z osobą przypisaną (`POST /api/v1/issues`) albo zmianie osoby przypisanej na inną (`PATCH /api/v1/issues/{issueId}`), jeśli przypisana osoba nie jest sprawcą zmiany, serwer zleca w Core powiadomienie `POST /core/v1/organizations/{organizationId}/notifications` (`sendNotification` w `@monorise-team/sdk`) w kategorii `kivotasks.assignments`.
+  - Link `actionUrl` budowany jest na originie `config.appUrl` (`KIVOTASKS_APP_URL`), np. `${origin}/issue/MAG-3`. Nazwa osoby przypisującej pochodzi z sesji BFF lub katalogu zespołu pobranego przy walidacji; bez niej zdanie o osobie przypisującej jest pomijane.
+  - Wywołanie działa best-effort z krótkim limitem czasu (`DEFAULT_NOTIFICATION_TIMEOUT_MS = 3000` ms), deterministycznym nagłówkiem `Idempotency-Key` (`kivotasks:issue-assigned:<issueId>:<assigneeAccountId>:<updatedAt>`) i polityką ponawiania SDK; błędy są logowane jako ostrzeżenie bez danych osobowych ani tokenów i nie przerywają żądania użytkownika.
 
 ## Uprawnienia, role i kanał zdarzeń
 

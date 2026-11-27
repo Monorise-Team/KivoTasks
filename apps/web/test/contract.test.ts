@@ -30,6 +30,7 @@ import { resetMachineCoreTokenCache } from "@/server/core";
 import {
   CORE_DIRECTORY_READ_SCOPE,
   CORE_EVENTS_READ_SCOPE,
+  CORE_NOTIFICATIONS_SEND_SCOPE,
   CORE_PERMISSIONS_READ_SCOPE,
   CORE_PERMISSIONS_REGISTER_SCOPE,
 } from "@/server/core-machine";
@@ -185,6 +186,7 @@ beforeAll(async () => {
           CORE_PERMISSIONS_READ_SCOPE,
           CORE_DIRECTORY_READ_SCOPE,
           CORE_EVENTS_READ_SCOPE,
+          CORE_NOTIFICATIONS_SEND_SCOPE,
         ],
       },
     ],

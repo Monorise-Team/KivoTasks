@@ -27,11 +27,20 @@ import { resetMachineCoreTokenCache, setCoreRetryForTests } from "@/server/core"
 import {
   CORE_DIRECTORY_READ_SCOPE,
   CORE_EVENTS_READ_SCOPE,
+  CORE_NOTIFICATIONS_SEND_SCOPE,
   CORE_PERMISSIONS_READ_SCOPE,
   CORE_PERMISSIONS_REGISTER_SCOPE,
 } from "@/server/core-machine";
+import {
+  buildAssignmentNotificationIdempotencyKey,
+  KIVOTASKS_ASSIGNMENT_NOTIFICATION_CATEGORY,
+} from "@/server/notifications";
 import { invalidatePermissionCache } from "@/server/permissions";
-import { createFakeCoreWithUnitsFetch } from "./helpers/fake-core-units";
+import {
+  createFakeCoreWithUnitsFetch,
+  type CapturedNotificationRequest,
+  type NotificationFault,
+} from "./helpers/fake-core-units";
 
 const API = "http://kivo.localhost:3500";
 const BASE = `${API}/api/v1`;
@@ -72,6 +81,8 @@ function call<P>(
 
 let fakeCore: FakeCore;
 let acme: FakeOrganizationBuilder;
+let capturedNotifications: CapturedNotificationRequest[] = [];
+let notificationFault: NotificationFault | null = null;
 
 let unitMagazynId: string;
 let unitFinanseId: string;
@@ -125,17 +136,21 @@ beforeAll(async () => {
           CORE_PERMISSIONS_READ_SCOPE,
           CORE_DIRECTORY_READ_SCOPE,
           CORE_EVENTS_READ_SCOPE,
+          CORE_NOTIFICATIONS_SEND_SCOPE,
         ],
       },
     ],
   });
   process.env.CORE_AUTH_URL = FAKE_CORE_URL;
   process.env.CORE_API_URL = FAKE_CORE_URL;
+  process.env.KIVOTASKS_APP_URL = "http://kivotasks.localhost:3500";
   delete process.env.KIVOTASKS_CORE_JWKS;
 });
 
 beforeEach(async () => {
   fakeCore.reset();
+  capturedNotifications = [];
+  notificationFault = null;
   setCoreRetryForTests(false);
   invalidatePermissionCache();
   resetMachineCoreTokenCache();
@@ -204,7 +219,12 @@ beforeEach(async () => {
     scope: { type: "UNIT", unitId: unitFinanseId },
   });
 
-  vi.spyOn(globalThis, "fetch").mockImplementation(createFakeCoreWithUnitsFetch(fakeCore));
+  vi.spyOn(globalThis, "fetch").mockImplementation(
+    createFakeCoreWithUnitsFetch(fakeCore, {
+      onNotification: (captured) => capturedNotifications.push(captured),
+      getNotificationFault: () => notificationFault,
+    }),
+  );
 
   // Zakładamy dwa zespoły: MAG i FIN
   const restore = await setupSession(owner);
@@ -964,5 +984,217 @@ describe("filtrowanie, sortowanie, stronicowanie kursorowe i ranking wyszukiwani
     const capped = await call(searchRoute.GET, "/search?q=inwentaryzacja", { token: goscToken });
     expect(capped.status).toBe(200);
     expect(capped.body.data.issues).toHaveLength(20);
+  });
+});
+
+describe("powiadomienia e-mail o przypisaniu zadania (Core notifications)", () => {
+  it("wysyła jedno powiadomienie po utworzeniu zadania z osobą przypisaną i po zmianie osoby przypisanej", async () => {
+    const created = await call(issuesRoute.POST, "/issues", {
+      method: "POST",
+      body: {
+        teamId: unitMagazynId,
+        title: "Przegląd wózków widłowych",
+        assigneeAccountId: jan.accountId,
+      },
+      token: annaToken,
+    });
+    expect(created.status).toBe(201);
+    expect(capturedNotifications).toHaveLength(1);
+    expect(capturedNotifications[0]).toMatchObject({
+      organizationId: acme.id,
+      idempotencyKey: buildAssignmentNotificationIdempotencyKey({
+        issueId: created.body.data.id,
+        assigneeAccountId: jan.accountId,
+        updatedAt: created.body.data.updatedAt,
+      }),
+      body: {
+        recipientAccountId: jan.accountId,
+        category: KIVOTASKS_ASSIGNMENT_NOTIFICATION_CATEGORY,
+        title: "Nowe zadanie dla Ciebie: MAG-1",
+        body: "Zadanie „Przegląd wózków widłowych” w zespole Magazyn. Przypisanie: Anna Nowak.",
+        actionUrl: "http://kivotasks.localhost:3500/issue/MAG-1",
+      },
+    });
+
+    // Ponowne przypisanie do nowej osoby (Anna przez Ownera) wysyła jedno powiadomienie do Anny
+    const reassigned = await call(
+      issueByIdRoute.PATCH,
+      `/issues/${created.body.data.id}`,
+      {
+        method: "PATCH",
+        body: { assigneeAccountId: anna.accountId },
+        token: ownerToken,
+      },
+      { issueId: created.body.data.id },
+    );
+    expect(reassigned.status).toBe(200);
+    expect(capturedNotifications).toHaveLength(2);
+    expect(capturedNotifications[1]).toMatchObject({
+      organizationId: acme.id,
+      idempotencyKey: buildAssignmentNotificationIdempotencyKey({
+        issueId: reassigned.body.data.id,
+        assigneeAccountId: anna.accountId,
+        updatedAt: reassigned.body.data.updatedAt,
+      }),
+      body: {
+        recipientAccountId: anna.accountId,
+        category: KIVOTASKS_ASSIGNMENT_NOTIFICATION_CATEGORY,
+        title: "Nowe zadanie dla Ciebie: MAG-1",
+        body: "Zadanie „Przegląd wózków widłowych” w zespole Magazyn. Przypisanie: Ola Właścicielka.",
+        actionUrl: "http://kivotasks.localhost:3500/issue/MAG-1",
+      },
+    });
+    expect(capturedNotifications[1]?.idempotencyKey).not.toBe(capturedNotifications[0]?.idempotencyKey);
+  });
+
+  it("nie wysyła powiadomienia przy przypisaniu sobie, braku zmiany osoby przypisanej, odpięciu ani błędzie zapisu", async () => {
+    // 1. Utworzenie zadania bez assignee
+    const unassigned = await call(issuesRoute.POST, "/issues", {
+      method: "POST",
+      body: { teamId: unitMagazynId, title: "Zadanie bez przypisania" },
+      token: annaToken,
+    });
+    expect(unassigned.status).toBe(201);
+    expect(capturedNotifications).toHaveLength(0);
+
+    // 2. Utworzenie zadania z przypisaniem sobie
+    const selfCreated = await call(issuesRoute.POST, "/issues", {
+      method: "POST",
+      body: { teamId: unitMagazynId, title: "Moje własne zadanie", assigneeAccountId: anna.accountId },
+      token: annaToken,
+    });
+    expect(selfCreated.status).toBe(201);
+    expect(capturedNotifications).toHaveLength(0);
+
+    // 3. Przypisanie sobie przez PATCH
+    const selfUpdated = await call(
+      issueByIdRoute.PATCH,
+      `/issues/${unassigned.body.data.id}`,
+      { method: "PATCH", body: { assigneeAccountId: anna.accountId }, token: annaToken },
+      { issueId: unassigned.body.data.id },
+    );
+    expect(selfUpdated.status).toBe(200);
+    expect(capturedNotifications).toHaveLength(0);
+
+    // 4. PATCH z tą samą osobą przypisaną (nawet przez kogoś innego)
+    const sameAssignee = await call(
+      issueByIdRoute.PATCH,
+      `/issues/${unassigned.body.data.id}`,
+      { method: "PATCH", body: { assigneeAccountId: anna.accountId }, token: ownerToken },
+      { issueId: unassigned.body.data.id },
+    );
+    expect(sameAssignee.status).toBe(200);
+    expect(capturedNotifications).toHaveLength(0);
+
+    // 5. PATCH bez pola assigneeAccountId (zmiana samego tytułu)
+    const titleOnly = await call(
+      issueByIdRoute.PATCH,
+      `/issues/${unassigned.body.data.id}`,
+      { method: "PATCH", body: { title: "Nowy tytuł" }, token: ownerToken },
+      { issueId: unassigned.body.data.id },
+    );
+    expect(titleOnly.status).toBe(200);
+    expect(capturedNotifications).toHaveLength(0);
+
+    // 6. Odpięcie osoby przypisanej (null)
+    const cleared = await call(
+      issueByIdRoute.PATCH,
+      `/issues/${unassigned.body.data.id}`,
+      { method: "PATCH", body: { assigneeAccountId: null }, token: ownerToken },
+      { issueId: unassigned.body.data.id },
+    );
+    expect(cleared.status).toBe(200);
+    expect(capturedNotifications).toHaveLength(0);
+
+    // 7. Błąd zapisu w bazie (nieistniejący status) mimo poprawnego assignee -> brak powiadomienia
+    const failedDb = await call(issuesRoute.POST, "/issues", {
+      method: "POST",
+      body: {
+        teamId: unitMagazynId,
+        title: "Nieudany zapis",
+        stateId: "019a0000-0000-7000-8000-000000009999",
+        assigneeAccountId: jan.accountId,
+      },
+      token: annaToken,
+    });
+    expect(failedDb.status).toBe(422);
+    expect(capturedNotifications).toHaveLength(0);
+  });
+
+  it("pomija zdanie o osobie przypisującej, gdy nie ma jej imienia ani w sesji, ani w katalogu zespołu", async () => {
+    const outsideAdminRoleId = acme.addRole({
+      name: "Admin firmy",
+      product: "kivotasks",
+      permissions: [KIVOTASKS_PERMISSIONS.keys["issues.read"], KIVOTASKS_PERMISSIONS.keys["issues.write"]],
+    }).id;
+    const outsideAdmin = acme.addEmployee({
+      firstName: "Karol",
+      lastName: "Spoza",
+      products: ["kivotasks"],
+      unitIds: [unitFinanseId],
+    });
+    acme.assignRole({
+      accountId: outsideAdmin.accountId,
+      roleId: outsideAdminRoleId,
+      scope: { type: "ORGANIZATION" },
+    });
+    const outsideToken = await acme.signUserToken(outsideAdmin.accountId, { audience: API });
+
+    const created = await call(issuesRoute.POST, "/issues", {
+      method: "POST",
+      body: { teamId: unitMagazynId, title: "Audyt regałów", assigneeAccountId: jan.accountId },
+      token: outsideToken,
+    });
+    expect(created.status).toBe(201);
+    expect(capturedNotifications).toHaveLength(1);
+    expect(capturedNotifications[0]?.body.body).toBe("Zadanie „Audyt regałów” w zespole Magazyn.");
+
+    // Gdy ta sama osoba spoza zespołu przypisuje przez sesję BFF, nazwa pochodzi z profilu sesji
+    const restoreSession = await setupSession(outsideAdmin);
+    try {
+      const reassigned = await call(
+        issueByIdRoute.PATCH,
+        `/issues/${created.body.data.id}`,
+        { method: "PATCH", body: { assigneeAccountId: anna.accountId } },
+        { issueId: created.body.data.id },
+      );
+      expect(reassigned.status).toBe(200);
+      expect(capturedNotifications).toHaveLength(2);
+      expect(capturedNotifications[1]?.body.body).toBe(
+        "Zadanie „Audyt regałów” w zespole Magazyn. Przypisanie: Karol Spoza.",
+      );
+    } finally {
+      restoreSession();
+    }
+  });
+
+  it("nie przerywa utworzenia ani aktualizacji zadania, gdy Core zwróci 500 albo błąd sieci", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    // 1. Core 500 przy tworzeniu zadania
+    notificationFault = { status: 500 };
+    const created = await call(issuesRoute.POST, "/issues", {
+      method: "POST",
+      body: { teamId: unitMagazynId, title: "Awaria powiadomień 500", assigneeAccountId: jan.accountId },
+      token: annaToken,
+    });
+    expect(created.status).toBe(201);
+    expect(capturedNotifications).toHaveLength(1);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0]?.[0])).not.toContain("Anna Nowak");
+    expect(String(warnSpy.mock.calls[0]?.[0])).not.toContain(CLIENT_SECRET);
+
+    // 2. Błąd sieci przy zmianie osoby przypisanej
+    notificationFault = { networkError: true };
+    const updated = await call(
+      issueByIdRoute.PATCH,
+      `/issues/${created.body.data.id}`,
+      { method: "PATCH", body: { assigneeAccountId: anna.accountId }, token: ownerToken },
+      { issueId: created.body.data.id },
+    );
+    expect(updated.status).toBe(200);
+    expect(capturedNotifications).toHaveLength(2);
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+    expect(String(warnSpy.mock.calls[1]?.[0])).not.toContain("Ola Właścicielka");
   });
 });
