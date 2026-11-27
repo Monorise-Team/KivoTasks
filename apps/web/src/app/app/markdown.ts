@@ -10,6 +10,25 @@ const ALLOWED_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 
 const MENTION_REGEX = /@\[([^\]\r\n]{1,120})\]\(([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)/i;
 
+/**
+ * Ścisły wzorzec ścieżki względnej do zawartości załącznika KivoTasks (wyłącznie małe litery UUID,
+ * bez parametrów zapytania, fragmentów, białych znaków, ukośników odwrotnych ani segmentów ścieżki).
+ */
+const ATTACHMENT_CONTENT_PATH_REGEX =
+  /^\/api\/v1\/attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/content$/;
+
+const IMAGE_REGEX = /^!\[((?:\\[[\]]|[^\\\]\r\n]|\\(?![[\]\r\n]))*)\]\(([^)\r\n]+)\)/;
+const LINK_REGEX = /^\[((?:\\[[\]]|[^\\\]\r\n]|\\(?![[\]\r\n]))+)\]\(([^)\r\n]+)\)/;
+
+function unescapeMarkdownBrackets(value: string): string {
+  return value.replace(/\\([[\]])/g, "$1");
+}
+
+/** Zwraca `true` wyłącznie dla dokładnej ścieżki względnej `/api/v1/attachments/<uuid>/content`. */
+export function isAttachmentContentUrl(rawUrl: string): boolean {
+  return ATTACHMENT_CONTENT_PATH_REGEX.test(rawUrl);
+}
+
 export type MarkdownInlineNode =
   | { readonly type: "text"; readonly value: string }
   | { readonly type: "strong"; readonly children: readonly MarkdownInlineNode[] }
@@ -17,6 +36,7 @@ export type MarkdownInlineNode =
   | { readonly type: "del"; readonly children: readonly MarkdownInlineNode[] }
   | { readonly type: "code"; readonly value: string }
   | { readonly type: "link"; readonly href: string; readonly label: string }
+  | { readonly type: "image"; readonly src: string; readonly alt: string }
   | { readonly type: "mention"; readonly accountId: string; readonly label: string }
   | { readonly type: "break" };
 
@@ -28,10 +48,14 @@ export type MarkdownBlockNode =
   | { readonly type: "list"; readonly ordered: boolean; readonly items: readonly (readonly MarkdownInlineNode[])[] };
 
 /**
- * Waliduje adres odnośnika z Markdown: dopuszcza wyłącznie `http:`, `https:` i `mailto:`.
- * Odrzuca m.in. `javascript:`, `data:`, `vbscript:`, adresy ze znakami sterującymi oraz `//...`.
+ * Waliduje adres odnośnika z Markdown: dopuszcza wyłącznie `http:`, `https:`, `mailto:`
+ * oraz dokładną ścieżkę względną `/api/v1/attachments/<uuid>/content`.
+ * Odrzuca m.in. pozostałe ścieżki względne, `javascript:`, `data:`, `vbscript:`, znaki sterujące i `//...`.
  */
 export function sanitizeMarkdownUrl(rawUrl: string): string | null {
+  if (isAttachmentContentUrl(rawUrl)) {
+    return rawUrl;
+  }
   const trimmed = rawUrl.trim();
   if (!trimmed) return null;
   if (trimmed.startsWith("//")) return null;
@@ -114,11 +138,27 @@ export function parseMarkdownInline(
       }
     }
 
+    // Obraz załącznika: ![alt](/api/v1/attachments/<uuid>/content) — każdy inny ![...](...) zostaje zwykłym tekstem
+    if (rest.startsWith("![")) {
+      const imageMatch = IMAGE_REGEX.exec(rest);
+      if (imageMatch) {
+        const rawAlt = imageMatch[1]!;
+        const rawSrc = imageMatch[2]!;
+        if (isAttachmentContentUrl(rawSrc)) {
+          nodes.push({ type: "image", src: rawSrc, alt: unescapeMarkdownBrackets(rawAlt) });
+        } else {
+          appendText(nodes, imageMatch[0]);
+        }
+        index += imageMatch[0].length;
+        continue;
+      }
+    }
+
     // Odnośnik: [tekst](url)
     if (rest.startsWith("[")) {
-      const linkMatch = /^\[([^\]\r\n]+)\]\(([^)\r\n]+)\)/.exec(rest);
+      const linkMatch = LINK_REGEX.exec(rest);
       if (linkMatch) {
-        const label = linkMatch[1]!;
+        const label = unescapeMarkdownBrackets(linkMatch[1]!);
         const safeUrl = sanitizeMarkdownUrl(linkMatch[2]!);
         if (safeUrl) {
           nodes.push({ type: "link", href: safeUrl, label });

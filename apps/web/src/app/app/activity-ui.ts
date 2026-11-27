@@ -151,6 +151,14 @@ export function formatIssueEventText(event: IssueEvent, memberNames: ReadonlyMap
     }
     case "DELETED":
       return `${actor} usuwa zadanie`;
+    case "ATTACHMENT_ADDED": {
+      const fileName = readString(after, "fileName");
+      return fileName ? `${actor} dodaje załącznik ${fileName}` : `${actor} dodaje załącznik`;
+    }
+    case "ATTACHMENT_REMOVED": {
+      const fileName = readString(before, "fileName");
+      return fileName ? `${actor} usuwa załącznik ${fileName}` : `${actor} usuwa załącznik`;
+    }
   }
 }
 

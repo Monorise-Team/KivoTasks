@@ -5,6 +5,7 @@ import {
   COMMENT_REACTION_EMOJIS,
   type CommentReactionEmoji,
   type IssueActivityItem,
+  type IssueAttachment,
   type IssueComment,
   type TeamMember,
 } from "@kivotasks/client";
@@ -43,6 +44,9 @@ export interface IssueActivitySectionProps {
   readonly members: readonly TeamMember[];
   readonly memberNameByAccountId: ReadonlyMap<string, string>;
   readonly canManageTeam: boolean;
+  readonly canWriteIssues: boolean;
+  readonly uploadDisabled?: boolean;
+  readonly onUploadAttachment?: (file: File) => Promise<IssueAttachment | null>;
   readonly activityRevision: number;
   readonly onCommentCreated?: () => void;
 }
@@ -59,6 +63,9 @@ export function IssueActivitySection({
   members,
   memberNameByAccountId,
   canManageTeam,
+  canWriteIssues,
+  uploadDisabled = false,
+  onUploadAttachment,
   activityRevision,
   onCommentCreated,
 }: IssueActivitySectionProps) {
@@ -409,6 +416,9 @@ export function IssueActivitySection({
                     submitLabel="Zapisz zmiany"
                     ariaLabel="Edycja komentarza"
                     autoFocus
+                    canUploadAttachment={canWriteIssues}
+                    uploadDisabled={uploadDisabled}
+                    onUploadAttachment={onUploadAttachment}
                   />
                 ) : (
                   <MarkdownContent body={comment.body ?? ""} mentionedAccountIds={comment.mentionedAccountIds} />
@@ -485,6 +495,9 @@ export function IssueActivitySection({
           busy={creating}
           submitLabel="Dodaj komentarz"
           ariaLabel="Nowy komentarz"
+          canUploadAttachment={canWriteIssues}
+          uploadDisabled={uploadDisabled}
+          onUploadAttachment={onUploadAttachment}
         />
       </div>
 

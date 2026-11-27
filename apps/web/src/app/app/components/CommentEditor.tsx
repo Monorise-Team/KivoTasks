@@ -1,17 +1,20 @@
 "use client";
 
-import type { TeamMember } from "@kivotasks/client";
+import type { IssueAttachment, TeamMember } from "@kivotasks/client";
 import { Avatar, Button, TextArea, cn } from "@monorise-team/ui";
+import { Paperclip } from "lucide-react";
 import {
   useId,
   useMemo,
   useRef,
   useState,
   type ChangeEvent,
+  type ClipboardEvent,
   type FormEvent,
   type KeyboardEvent,
   type SyntheticEvent,
 } from "react";
+import { extractClipboardImageFile, formatAttachmentMarkdown, insertTextAtCursor } from "../attachments-ui";
 import { formatMemberName } from "../issue-ui";
 import {
   filterMentionCandidates,
@@ -32,6 +35,9 @@ export interface CommentEditorProps {
   readonly ariaLabel?: string;
   readonly rows?: number;
   readonly autoFocus?: boolean;
+  readonly canUploadAttachment?: boolean;
+  readonly uploadDisabled?: boolean;
+  readonly onUploadAttachment?: (file: File) => Promise<IssueAttachment | null>;
 }
 
 /**
@@ -49,12 +55,17 @@ export function CommentEditor({
   ariaLabel = "Treść komentarza",
   rows = 3,
   autoFocus = false,
+  canUploadAttachment = false,
+  uploadDisabled = false,
+  onUploadAttachment,
 }: CommentEditorProps) {
   const listboxId = useId();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [cursorPos, setCursorPos] = useState(value.length);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
 
   const mentionQuery: ActiveMentionQuery | null = useMemo(() => {
     const detected = findActiveMentionQuery(value, cursorPos);
@@ -142,9 +153,55 @@ export function CommentEditor({
 
   const handleFormSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (!busy && value.trim().length > 0) {
+    if (!busy && !uploadingAttachment && value.trim().length > 0) {
       void onSubmit();
     }
+  };
+
+  const uploadAndInsertFile = async (file: File) => {
+    if (!canUploadAttachment || !onUploadAttachment || uploadDisabled || busy || uploadingAttachment) {
+      return;
+    }
+    const node = textareaRef.current;
+    const start = node?.selectionStart ?? cursorPos;
+    const end = node?.selectionEnd ?? start;
+    setUploadingAttachment(true);
+    try {
+      const uploaded = await onUploadAttachment(file);
+      if (!uploaded) return;
+      const snippet = formatAttachmentMarkdown(uploaded);
+      const currentText = textareaRef.current?.value ?? value;
+      const { nextText, nextCursorPos } = insertTextAtCursor(currentText, start, end, snippet);
+      onChange(nextText);
+      setCursorPos(nextCursorPos);
+      window.requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(nextCursorPos, nextCursorPos);
+        }
+      });
+    } finally {
+      setUploadingAttachment(false);
+    }
+  };
+
+  const handleAttachFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) {
+      void uploadAndInsertFile(file);
+    }
+  };
+
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!canUploadAttachment || !onUploadAttachment || uploadDisabled || busy || uploadingAttachment) {
+      return;
+    }
+    const imageFile = extractClipboardImageFile(event.clipboardData);
+    if (!imageFile) return;
+    event.preventDefault();
+    void uploadAndInsertFile(imageFile);
   };
 
   const activeOptionId = menuOpen ? `${listboxId}-opt-${clampedActiveIndex}` : undefined;
@@ -167,6 +224,7 @@ export function CommentEditor({
           autoFocus={autoFocus}
           onChange={handleChange}
           onSelect={handleSelect}
+          onPaste={handlePaste}
           onKeyUp={(event) => syncCursor(event.currentTarget)}
           onKeyDown={handleKeyDown}
         />
@@ -209,16 +267,50 @@ export function CommentEditor({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs text-text-tertiary">
-          Wpisz @, aby wspomnieć członka zespołu. Obsługiwany jest Markdown. ⌘+Enter lub Ctrl+Enter wysyła komentarz.
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {canUploadAttachment && onUploadAttachment ? (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="sr-only"
+                aria-label="Załącz plik do komentarza"
+                onChange={handleAttachFileChange}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                icon={<Paperclip aria-hidden />}
+                disabled={busy || uploadingAttachment || uploadDisabled}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploadingAttachment ? "Wysyłanie…" : "Załącz plik"}
+              </Button>
+            </>
+          ) : null}
+          <span className="text-xs text-text-tertiary">
+            Wpisz @, aby wspomnieć członka zespołu. Obsługiwany jest Markdown. ⌘+Enter lub Ctrl+Enter wysyła komentarz.
+          </span>
+        </div>
         <div className="flex items-center gap-2">
           {onCancel ? (
-            <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={onCancel}>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy || uploadingAttachment}
+              onClick={onCancel}
+            >
               Anuluj
             </Button>
           ) : null}
-          <Button type="submit" variant="primary" size="sm" disabled={busy || value.trim().length === 0}>
+          <Button
+            type="submit"
+            variant="primary"
+            size="sm"
+            disabled={busy || uploadingAttachment || value.trim().length === 0}
+          >
             {busy ? "Zapisywanie…" : submitLabel}
           </Button>
         </div>
