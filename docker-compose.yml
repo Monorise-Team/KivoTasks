@@ -4,7 +4,8 @@
 name: kivo-tasks
 
 services:
-  postgres:
+  database:
+    container_name: kivo-tasks-database
     image: postgres:17-alpine
     environment:
       POSTGRES_PASSWORD: postgres

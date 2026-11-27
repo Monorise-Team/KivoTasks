@@ -79,7 +79,7 @@ Następnie w Core API (`http://localhost:3200/core/v1`, z tokenem Ownera firmy) 
 ### Kanał zdarzeń Core i baza danych
 
 - **Kanał zdarzeń Core (ADR-0100):** `apps/web/src/instrumentation.ts` uruchamia odpytywanie `GET /core/v1/products/kivotasks/events` (`KIVOTASKS_EVENT_FEED_INTERVAL_MS`, domyślnie `5000` ms w `development`, `0` poza nim). Zdarzenie `organization.permissions.changed` natychmiast unieważnia pamięć podręczną uprawnień dla wskazanej firmy i konta.
-- **Baza danych:** PostgreSQL na porcie `5436` (kontener `kivo-tasks-postgres-1`). Zawiera tabele techniczne (`auth.sessions`, `public.event_feed_cursors`, `public.processed_events`), funkcje pomocnicze RLS (`public.current_organization_id()`, `public.current_account_id()`) oraz tabele domenowe etapu 1a (`teams`, `workflow_states`, `labels`, `issues`, `issue_labels`, `issue_relations`) z wymuszonym RLS (`ENABLE` + `FORCE`) i testami separacji firm.
+- **Baza danych:** PostgreSQL na porcie `5436` (kontener `kivo-tasks-database`). Zawiera tabele techniczne (`auth.sessions`, `public.event_feed_cursors`, `public.processed_events`), funkcje pomocnicze RLS (`public.current_organization_id()`, `public.current_account_id()`) oraz tabele domenowe etapu 1a (`teams`, `workflow_states`, `labels`, `issues`, `issue_labels`, `issue_relations`) z wymuszonym RLS (`ENABLE` + `FORCE`) i testami separacji firm.
 
 ## Polecenia i kontrole
 
