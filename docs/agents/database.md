@@ -36,6 +36,7 @@ Klucze obce są złożone i zawsze zawierają `organization_id` (sprawdzanie klu
 
 Blokady przeciw wyścigom (READ COMMITTED):
 
+- Aktualizacja zadania (`updateIssue`) bierze blokadę wiersza `FOR UPDATE OF i` na aktywnym zadaniu przed odczytem stanu „przed” (przy zmianie rodzica poprzedzoną blokadą `issue_hierarchy:<teamId>` w tej samej kolejności co `softDeleteIssue`), dzięki czemu równoległe aktualizacje nie tworzą duplikatów zdarzeń historii, wpisów `ASSIGNED`, e-maili ani konfliktów `issue_labels`, a równolegle usunięte zadanie zwraca `404`.
 - Przypisanie statusu lub etykiet (`createIssue`, `updateIssue`) czyta ich wiersze `FOR SHARE` z `archived_at IS NULL`; archiwizacja (`deleteWorkflowState`, `deleteLabel`) bierze `FOR UPDATE` i dopiero potem liczy zadania. Sam klucz obcy bierze tylko `FOR KEY SHARE`, które nie koliduje ze zmianą `archived_at`.
 - Zmiany hierarchii (nowe podzadanie, zmiana rodzica, miękkie usunięcie) biorą blokadę doradczą zespołu `issue_hierarchy:<teamId>`; usunięcie zadania odpina jego podzadania (`parent_id = NULL`).
 - Nowa relacja blokuje oba zadania `FOR SHARE` w swojej transakcji i zwraca `404`, gdy któreś usunięto w międzyczasie.
@@ -43,7 +44,7 @@ Blokady przeciw wyścigom (READ COMMITTED):
 
 ### Migracja współpracy etapu 2a (`20261127050000_collaboration`)
 
-Definiuje typy wyliczeniowe `IssueEventType` (`CREATED`, `TITLE_CHANGED`, `DESCRIPTION_CHANGED`, `STATE_CHANGED`, `PRIORITY_CHANGED`, `ASSIGNEE_CHANGED`, `LABELS_CHANGED`, `DUE_DATE_CHANGED`, `ESTIMATE_CHANGED`, `PARENT_CHANGED`, `RELATION_ADDED`, `RELATION_REMOVED`, `DELETED`) i `InboxItemKind` (`ASSIGNED`, `MENTIONED`, `COMMENTED`) oraz sześć tabel domenowych z wymuszonym RLS (`ENABLE` + `FORCE ROW LEVEL SECURITY`), uprawnieniami dla `kivo_tasks_app` i złożonymi kluczami obcymi:
+Definiuje typy wyliczeniowe `IssueEventType` (`CREATED`, `TITLE_CHANGED`, `DESCRIPTION_CHANGED`, `STATE_CHANGED`, `PRIORITY_CHANGED`, `ASSIGNEE_CHANGED`, `LABELS_CHANGED`, `DUE_DATE_CHANGED`, `ESTIMATE_CHANGED`, `PARENT_CHANGED`, `RELATION_ADDED`, `RELATION_REMOVED`, `DELETED`) i `InboxItemKind` (`ASSIGNED`, `MENTIONED`, `COMMENTED`) oraz sześć tabel domenowych z wymuszonym RLS (`ENABLE` + `FORCE ROW LEVEL SECURITY`), uprawnieniami dla `kivo_tasks_app` i złożonymi kluczami obcymi. Na końcu migracji znajduje się idempotentny backfill `issue_subscribers` dla istniejących aktywnych zadań (twórca i bieżąca osoba przypisana, z pominięciem `deleted_at IS NOT NULL`), osłonięty tymczasowym `NO FORCE ROW LEVEL SECURITY` / `FORCE ROW LEVEL SECURITY` na `issues` i `issue_subscribers`:
 
 | Tabela              | Schemat  | RLS | Przeznaczenie i najważniejsze ograniczenia                                                                                                                                                                                                                                                                      |
 | ------------------- | -------- | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

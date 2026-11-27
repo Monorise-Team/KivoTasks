@@ -882,6 +882,101 @@ describe("RLS i uprawnienia roli aplikacji kivo_tasks_app", () => {
     expect(team?.nextIssueNumber).toBe(14);
   });
 
+  it("uzupełnienie obserwujących (backfill z migracji 20261127050000) dodaje twórcę i przypisanego aktywnych zadań oraz jest idempotentne", async () => {
+    const backfillTeamId = uuidv7();
+    const backfillStateId = uuidv7();
+    const activeAssignedIssueId = uuidv7();
+    const activeSelfIssueId = uuidv7();
+    const deletedIssueId = uuidv7();
+
+    await withUser(db, anna, async (tx) => {
+      await tx.team.create({
+        data: { id: backfillTeamId, organizationId: acme, key: "BFL", name: "Backfill", nextIssueNumber: 4 },
+      });
+      await tx.workflowState.create({
+        data: {
+          id: backfillStateId,
+          organizationId: acme,
+          teamId: backfillTeamId,
+          name: "Backlog",
+          category: "BACKLOG",
+          color: "gray",
+          position: 0,
+        },
+      });
+      await tx.issue.createMany({
+        data: [
+          {
+            id: activeAssignedIssueId,
+            organizationId: acme,
+            teamId: backfillTeamId,
+            number: 1,
+            title: "Aktywne z przypisanym",
+            stateId: backfillStateId,
+            creatorAccountId: anna.accountId,
+            assigneeAccountId: bartek.accountId,
+          },
+          {
+            id: activeSelfIssueId,
+            organizationId: acme,
+            teamId: backfillTeamId,
+            number: 2,
+            title: "Aktywne przypisane sobie",
+            stateId: backfillStateId,
+            creatorAccountId: anna.accountId,
+            assigneeAccountId: anna.accountId,
+          },
+          {
+            id: deletedIssueId,
+            organizationId: acme,
+            teamId: backfillTeamId,
+            number: 3,
+            title: "Usunięte zadanie",
+            stateId: backfillStateId,
+            creatorAccountId: anna.accountId,
+            assigneeAccountId: bartek.accountId,
+            deletedAt: new Date(),
+          },
+        ],
+      });
+
+      // Uruchamiamy dokładnie instrukcje backfillu z migracji dwukrotnie, aby potwierdzić wynik i idempotentność
+      for (let run = 0; run < 2; run++) {
+        await tx.$executeRaw`
+          INSERT INTO "public"."issue_subscribers" ("issue_id", "account_id", "organization_id", "created_at")
+          SELECT "id", "creator_account_id", "organization_id", "created_at"
+          FROM "public"."issues"
+          WHERE "deleted_at" IS NULL AND "team_id" = ${backfillTeamId}::uuid
+          ON CONFLICT ("issue_id", "account_id") DO NOTHING
+        `;
+        await tx.$executeRaw`
+          INSERT INTO "public"."issue_subscribers" ("issue_id", "account_id", "organization_id", "created_at")
+          SELECT "id", "assignee_account_id", "organization_id", "created_at"
+          FROM "public"."issues"
+          WHERE "deleted_at" IS NULL
+            AND "assignee_account_id" IS NOT NULL
+            AND "team_id" = ${backfillTeamId}::uuid
+          ON CONFLICT ("issue_id", "account_id") DO NOTHING
+        `;
+      }
+
+      const rows = await tx.$queryRaw<{ issueId: string; accountId: string }[]>`
+        SELECT "issue_id"::text AS "issueId", "account_id"::text AS "accountId"
+        FROM "public"."issue_subscribers"
+        WHERE "issue_id" = ANY(${[activeAssignedIssueId, activeSelfIssueId, deletedIssueId]}::uuid[])
+        ORDER BY "issue_id" ASC, "account_id" ASC
+      `;
+
+      const expected = [
+        { issueId: activeAssignedIssueId, accountId: anna.accountId },
+        { issueId: activeAssignedIssueId, accountId: bartek.accountId },
+        { issueId: activeSelfIssueId, accountId: anna.accountId },
+      ].sort((a, b) => a.issueId.localeCompare(b.issueId) || a.accountId.localeCompare(b.accountId));
+
+      expect(rows).toEqual(expected);
+    });
+  });
+
   it("sesje przeglądarki i tabele kanału zdarzeń są dostępne dla kivo_tasks_app bez ustawionej firmy", async () => {
     const sessionId = `skrot-${uuidv7()}`;
     await db.session.create({

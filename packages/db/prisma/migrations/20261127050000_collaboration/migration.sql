@@ -206,3 +206,25 @@ ALTER TABLE "public"."inbox_items" FORCE ROW LEVEL SECURITY;
 CREATE POLICY organization_isolation ON "public"."inbox_items"
     USING ("organization_id" = "public"."current_organization_id"())
     WITH CHECK ("organization_id" = "public"."current_organization_id"());
+
+-- ── Uzupełnienie obserwujących dla istniejących zadań (twórca i bieżąca osoba przypisana) ─────────
+-- Migracja uruchamiana jest rolą kivo_tasks_owner, a tabele issues i issue_subscribers mają FORCE RLS,
+-- więc na czas backfillu tymczasowo wyłączamy FORCE RLS i natychmiast je przywracamy w tej samej transakcji.
+ALTER TABLE "public"."issues" NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE "public"."issue_subscribers" NO FORCE ROW LEVEL SECURITY;
+
+INSERT INTO "public"."issue_subscribers" ("issue_id", "account_id", "organization_id", "created_at")
+SELECT "id", "creator_account_id", "organization_id", "created_at"
+FROM "public"."issues"
+WHERE "deleted_at" IS NULL
+ON CONFLICT ("issue_id", "account_id") DO NOTHING;
+
+INSERT INTO "public"."issue_subscribers" ("issue_id", "account_id", "organization_id", "created_at")
+SELECT "id", "assignee_account_id", "organization_id", "created_at"
+FROM "public"."issues"
+WHERE "deleted_at" IS NULL
+  AND "assignee_account_id" IS NOT NULL
+ON CONFLICT ("issue_id", "account_id") DO NOTHING;
+
+ALTER TABLE "public"."issue_subscribers" FORCE ROW LEVEL SECURITY;
+ALTER TABLE "public"."issues" FORCE ROW LEVEL SECURITY;
