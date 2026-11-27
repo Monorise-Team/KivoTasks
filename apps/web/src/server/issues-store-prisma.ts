@@ -1653,9 +1653,9 @@ export const prismaIssuesStore: IssuesStore = {
         where: { id: issueId, deletedAt: null },
         select: { teamId: true, number: true, team: { select: { key: true } } },
       });
-      if (!target) return false;
-      // Pod blokadą hierarchii: podzadania stają się zadaniami głównymi, a usunięte zadanie traci rodzica,
-      // więc nie zostają odwołania do usuniętych zadań ani ukryte cykle
+      if (!target) return null;
+      // Pod blokadą hierarchii: podzadania stają się zadaniami głównymi (nie są usuwane),
+      // a usunięte zadanie traci rodzica i zwalnia swoje aktywne załączniki w kolejności blokad issues -> issue_attachments.
       await lockTeamIssueHierarchy(tx, target.teamId);
       const now = new Date();
       const children = await tx.issue.findMany({
@@ -1666,7 +1666,15 @@ export const prismaIssuesStore: IssuesStore = {
         where: { id: issueId, deletedAt: null },
         data: { deletedAt: now, parentId: null },
       });
-      if (updated.count === 0) return false;
+      if (updated.count === 0) return null;
+
+      const deletedAttachments = await tx.$queryRaw<{ storageKey: string }[]>`
+        UPDATE "public"."issue_attachments"
+        SET "deleted_at" = ${now}
+        WHERE "issue_id" = ${issueId}::uuid
+          AND "deleted_at" IS NULL
+        RETURNING "storage_key" AS "storageKey"
+      `;
 
       const eventsToInsert: PendingIssueEventRow[] = [];
       if (children.length > 0) {
@@ -1699,7 +1707,7 @@ export const prismaIssuesStore: IssuesStore = {
         createdAt: now,
       });
       await insertIssueEvents(tx, eventsToInsert);
-      return true;
+      return { deletedAttachmentKeys: deletedAttachments.map((row) => row.storageKey) };
     });
   },
 
@@ -2881,7 +2889,27 @@ export const prismaIssuesStore: IssuesStore = {
 
   async softDeleteIssueAttachment(actor, attachmentId): Promise<{ storageKey: string } | null> {
     return withUser(getDb(), actor, async (tx) => {
-      const rows = await tx.$queryRaw<
+      // Kolejność blokad zawsze issues -> issue_attachments (jak w createIssueAttachment i softDeleteIssue),
+      // aby uniknąć zakleszczenia z miękkim usunięciem zadania i blokadą KEY SHARE przy wpisie do issue_events.
+      const lockedIssues = await tx.$queryRaw<{ id: string }[]>`
+        SELECT i."id"::text AS "id"
+        FROM "public"."issues" i
+        JOIN "public"."teams" t ON t."id" = i."team_id"
+        WHERE i."id" = (
+          SELECT a."issue_id"
+          FROM "public"."issue_attachments" a
+          WHERE a."id" = ${attachmentId}::uuid
+            AND a."deleted_at" IS NULL
+        )
+          AND i."deleted_at" IS NULL
+          AND t."archived_at" IS NULL
+        FOR UPDATE OF i
+      `;
+      const lockedIssue = lockedIssues[0];
+      if (!lockedIssue) return null;
+
+      const now = new Date();
+      const updatedRows = await tx.$queryRaw<
         {
           id: string;
           teamId: string;
@@ -2892,32 +2920,21 @@ export const prismaIssuesStore: IssuesStore = {
           storageKey: string;
         }[]
       >`
-        SELECT a."id"::text AS "id",
-               a."team_id"::text AS "teamId",
-               a."issue_id"::text AS "issueId",
-               a."file_name" AS "fileName",
-               a."content_type" AS "contentType",
-               a."size_bytes" AS "sizeBytes",
-               a."storage_key" AS "storageKey"
-        FROM "public"."issue_attachments" a
-        JOIN "public"."issues" i ON i."id" = a."issue_id"
-        JOIN "public"."teams" t ON t."id" = i."team_id"
-        WHERE a."id" = ${attachmentId}::uuid
-          AND a."deleted_at" IS NULL
-          AND i."deleted_at" IS NULL
-          AND t."archived_at" IS NULL
-        FOR UPDATE OF a
-      `;
-      const row = rows[0];
-      if (!row) return null;
-
-      const now = new Date();
-      await tx.$executeRaw`
         UPDATE "public"."issue_attachments"
         SET "deleted_at" = ${now}
-        WHERE "id" = ${row.id}::uuid
+        WHERE "id" = ${attachmentId}::uuid
+          AND "issue_id" = ${lockedIssue.id}::uuid
           AND "deleted_at" IS NULL
+        RETURNING "id"::text AS "id",
+                  "team_id"::text AS "teamId",
+                  "issue_id"::text AS "issueId",
+                  "file_name" AS "fileName",
+                  "content_type" AS "contentType",
+                  "size_bytes" AS "sizeBytes",
+                  "storage_key" AS "storageKey"
       `;
+      const row = updatedRows[0];
+      if (!row) return null;
 
       await insertIssueEvents(tx, [
         {

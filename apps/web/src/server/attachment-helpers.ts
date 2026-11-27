@@ -77,10 +77,13 @@ function isDisallowedFileNameChar(code: number): boolean {
   return (
     code <= 0x1f || // C0
     (code >= 0x7f && code <= 0x9f) || // DEL + C1
+    code === 0x061c || // Arabic Letter Mark (bidi)
+    (code >= 0x200b && code <= 0x200f) || // Zero-width (U+200B–U+200D) + LRM/RLM (U+200E–U+200F)
     code === 0x2028 || // Line Separator
     code === 0x2029 || // Paragraph Separator
     (code >= 0x202a && code <= 0x202e) || // Bidi embeddings/overrides
-    (code >= 0x2066 && code <= 0x2069) // Bidi isolates
+    (code >= 0x2066 && code <= 0x2069) || // Bidi isolates
+    code === 0xfeff // Zero Width No-Break Space / BOM
   );
 }
 
@@ -97,16 +100,17 @@ function truncateUtf16Safe(value: string, maxCodeUnits: number): string {
 
 /**
  * Oczyszcza nazwę pliku od użytkownika:
- * 1. normalizacja NFC,
+ * 1. naprawa osieroconych surogatów UTF-16 (`toWellFormed`) i normalizacja NFC,
  * 2. część po ostatnim `/` lub `\`,
- * 3. usunięcie znaków sterujących (C0, C1, U+2028/2029, bidi U+202A–202E i U+2066–2069),
+ * 3. usunięcie znaków sterujących (C0, C1, U+2028/2029), zerowej szerokości (U+200B–200D, U+FEFF)
+ *    oraz znaków kierunku tekstu bidi (U+061C, U+200E–200F, U+202A–202E, U+2066–2069),
  * 4. zbicie białych znaków i przycięcie,
  * 5. usunięcie wiodących kropek,
  * 6. przycięcie do 255 jednostek kodu UTF-16 bez rozcinania pary surogatów,
  * 7. domyślna nazwa `plik`, gdy nic nie zostało.
  */
 export function sanitizeAttachmentFileName(rawName: string): string {
-  let name = rawName.normalize("NFC");
+  let name = rawName.toWellFormed().normalize("NFC");
   const lastSeparator = Math.max(name.lastIndexOf("/"), name.lastIndexOf("\\"));
   if (lastSeparator !== -1) {
     name = name.slice(lastSeparator + 1);
@@ -129,7 +133,10 @@ export function sanitizeAttachmentFileName(rawName: string): string {
 }
 
 function encodeRfc5987(value: string): string {
-  return encodeURIComponent(value).replace(/['()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+  return encodeURIComponent(value.toWellFormed()).replace(
+    /['()*]/g,
+    (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
 }
 
 /**
@@ -139,9 +146,10 @@ function encodeRfc5987(value: string): string {
  * - `filename*=UTF-8''<kodowanie procentowe RFC 5987>`.
  */
 export function buildContentDisposition(fileName: string, contentType: AttachmentContentType): string {
+  const safeName = fileName.toWellFormed();
   const disposition = isInlineAttachmentContentType(contentType) ? "inline" : "attachment";
   let asciiFallback = "";
-  for (const ch of fileName) {
+  for (const ch of safeName) {
     const code = ch.codePointAt(0)!;
     if (code < 0x20 || code > 0x7e || ch === '"' || ch === "\\") {
       asciiFallback += "_";
@@ -152,7 +160,7 @@ export function buildContentDisposition(fileName: string, contentType: Attachmen
   if (!asciiFallback) {
     asciiFallback = FALLBACK_ATTACHMENT_FILE_NAME;
   }
-  return `${disposition}; filename="${asciiFallback}"; filename*=UTF-8''${encodeRfc5987(fileName)}`;
+  return `${disposition}; filename="${asciiFallback}"; filename*=UTF-8''${encodeRfc5987(safeName)}`;
 }
 
 /** Oblicza skrót SHA-256 (64 małe znaki szesnastkowe) zawartości pliku. */

@@ -222,7 +222,16 @@ function assertSameOrigin(request: NextRequest) {
   if (request.headers.get("authorization")) return;
   const origin = request.headers.get("origin");
   const host = request.headers.get("host");
-  if (!origin || !host || new URL(origin).host !== host) {
+  if (!origin || !host) {
+    throw new ApiFailure(403, "PERMISSION_DENIED", "Żądanie spoza strony KivoTasks");
+  }
+  let originHost: string;
+  try {
+    originHost = new URL(origin).host;
+  } catch {
+    throw new ApiFailure(403, "PERMISSION_DENIED", "Żądanie spoza strony KivoTasks");
+  }
+  if (!originHost || originHost !== host) {
     throw new ApiFailure(403, "PERMISSION_DENIED", "Żądanie spoza strony KivoTasks");
   }
 }

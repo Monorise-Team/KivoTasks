@@ -1,4 +1,5 @@
 import "server-only";
+import { MULTIPART_CONTENT_LENGTH_OVERHEAD_BYTES } from "./attachment-helpers";
 
 const list = (value: string | undefined, fallback = "") =>
   (value ?? fallback)
@@ -30,11 +31,29 @@ const parsePositiveSafeInt = (value: string | undefined, fallback: number): numb
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+/**
+ * Limit bufora treści w `apps/web/next.config.ts` (`experimental.proxyClientMaxBodySize: "27mb"`,
+ * czyli 27 MiB = 28 311 552 B). Maksymalny rozmiar pliku nie może przekroczyć tej wartości
+ * pomniejszonej o narzut nagłówków `multipart/form-data`.
+ */
+export const PROXY_CLIENT_MAX_BODY_SIZE_BYTES = 27 * 1024 * 1024; // 28_311_552
+
+/** Maksymalny bezpieczny limit pojedynczego załącznika w ramach limitu proxy Next.js. */
+export const MAX_ALLOWED_ATTACHMENT_MAX_BYTES =
+  PROXY_CLIENT_MAX_BODY_SIZE_BYTES - MULTIPART_CONTENT_LENGTH_OVERHEAD_BYTES;
+
 /** Domyślny maksymalny rozmiar pojedynczego załącznika: 25 MB. */
 export const DEFAULT_ATTACHMENT_MAX_BYTES = 26_214_400;
 
 /** Domyślny limit miejsca na załączniki firmy: 1 GB (do czasu limitów planów w Core, ADR-0058). */
 export const DEFAULT_STORAGE_QUOTA_BYTES = 1_073_741_824;
+
+let attachmentMaxBytesClampWarned = false;
+
+/** Resetuje jednorazowe ostrzeżenie o obcięciu `KIVOTASKS_ATTACHMENT_MAX_BYTES` (do testów). */
+export function resetConfigWarningsForTests(): void {
+  attachmentMaxBytesClampWarned = false;
+}
 
 /** Ustawienia serwera ze zmiennych środowiskowych (lokalnie `.env.local`, tworzy go `pnpm setup:env`). */
 export const config = {
@@ -110,9 +129,19 @@ export const config = {
   get s3SecretAccessKey() {
     return process.env.KIVOTASKS_S3_SECRET_ACCESS_KEY?.trim() || "";
   },
-  /** Maksymalny rozmiar pojedynczego załącznika w bajtach (domyślnie 25 MB). */
+  /** Maksymalny rozmiar pojedynczego załącznika w bajtach (domyślnie 25 MB; maks. limit proxy minus narzut multipart). */
   get attachmentMaxBytes() {
-    return parsePositiveSafeInt(process.env.KIVOTASKS_ATTACHMENT_MAX_BYTES, DEFAULT_ATTACHMENT_MAX_BYTES);
+    const configured = parsePositiveSafeInt(process.env.KIVOTASKS_ATTACHMENT_MAX_BYTES, DEFAULT_ATTACHMENT_MAX_BYTES);
+    if (configured > MAX_ALLOWED_ATTACHMENT_MAX_BYTES) {
+      if (!attachmentMaxBytesClampWarned) {
+        attachmentMaxBytesClampWarned = true;
+        console.warn(
+          `[kivotasks.config] KIVOTASKS_ATTACHMENT_MAX_BYTES (${configured} B) przekracza limit proxy Next.js (${PROXY_CLIENT_MAX_BODY_SIZE_BYTES} B minus narzut multipart); ograniczono do ${MAX_ALLOWED_ATTACHMENT_MAX_BYTES} B.`,
+        );
+      }
+      return MAX_ALLOWED_ATTACHMENT_MAX_BYTES;
+    }
+    return configured;
   },
   /** Limit miejsca na załączniki jednej firmy w bajtach (domyślnie 1 GB, ADR-0058). */
   get storageQuotaBytes() {

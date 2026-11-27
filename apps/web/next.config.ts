@@ -7,7 +7,8 @@ const nextConfig: NextConfig = {
   experimental: {
     globalNotFound: true,
     // Next 16 buforuje treść żądań przechodzących przez src/proxy.ts i po cichu ucina powyżej 10 MB;
-    // limit musi być większy niż KIVOTASKS_ATTACHMENT_MAX_BYTES plus narzut multipart.
+    // 27 MiB = 28 311 552 B (zgodne z PROXY_CLIENT_MAX_BODY_SIZE_BYTES w src/server/config.ts),
+    // powyżej domyślnego limitu pliku (25 MB) z narzutem multipart (64 KiB).
     proxyClientMaxBodySize: "27mb",
   },
   poweredByHeader: false,

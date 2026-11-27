@@ -124,13 +124,63 @@ async function resolveVisibleAttachment(
   return { snapshot, attachment };
 }
 
-async function deleteObjectBestEffort(storageKey: string, attachmentId: string): Promise<void> {
+export async function deleteObjectBestEffort(storageKey: string, attachmentId: string): Promise<void> {
   try {
     await deleteObject(storageKey);
   } catch (error) {
     const label = error instanceof Error ? error.name : "UnknownError";
     console.warn(`[kivotasks.attachments] Nie udało się usunąć obiektu załącznika ${attachmentId} (${label}).`);
   }
+}
+
+/** Usuwa best-effort listę obiektów załączników po zatwierdzeniu transakcji (np. po usunięciu zadania). */
+export async function deleteAttachmentObjectsBestEffort(storageKeys: readonly string[]): Promise<void> {
+  for (const storageKey of storageKeys) {
+    const attachmentId = storageKey.split("/").pop() ?? "unknown";
+    await deleteObjectBestEffort(storageKey, attachmentId);
+  }
+}
+
+export async function readBoundedMultipartBody(
+  request: NextRequest,
+  maxBodyBytes: number,
+  maxFileBytes: number,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const body = request.body;
+  if (!body) {
+    throw new ApiFailure(422, "VALIDATION_FAILED", "Niepoprawna treść multipart/form-data");
+  }
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBodyBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new ApiFailure(413, "PAYLOAD_TOO_LARGE", formatMaxFileLimitMessage(maxFileBytes));
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    if (error instanceof ApiFailure) throw error;
+    throw new ApiFailure(422, "VALIDATION_FAILED", "Niepoprawna treść multipart/form-data");
+  } finally {
+    reader.releaseLock();
+  }
+
+  const combined = new Uint8Array(new ArrayBuffer(totalBytes));
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return combined;
 }
 
 export async function listIssueAttachments(
@@ -169,25 +219,28 @@ export async function uploadIssueAttachment(
 
   const maxBytes = config.attachmentMaxBytes;
   const quotaBytes = config.storageQuotaBytes;
+  const maxBodyBytes = maxBytes + MULTIPART_CONTENT_LENGTH_OVERHEAD_BYTES;
 
   // 2. Wstępna kontrola Content-Length przed wczytaniem treści żądania
   const rawContentLength = request.headers.get("content-length");
   if (rawContentLength !== null) {
     const parsedLength = Number(rawContentLength.trim());
-    if (Number.isFinite(parsedLength) && parsedLength > maxBytes + MULTIPART_CONTENT_LENGTH_OVERHEAD_BYTES) {
+    if (Number.isFinite(parsedLength) && parsedLength > maxBodyBytes) {
       throw new ApiFailure(413, "PAYLOAD_TOO_LARGE", formatMaxFileLimitMessage(maxBytes));
     }
   }
 
-  // 3. Odczyt multipart/form-data
-  const contentTypeHeader = request.headers.get("content-type")?.toLowerCase() ?? "";
-  if (!contentTypeHeader.includes("multipart/form-data")) {
+  // 3. Odczyt multipart/form-data z licznikiem bajtów (chroni także żądania chunked / HTTP/2 bez Content-Length)
+  const rawContentType = request.headers.get("content-type") ?? "";
+  if (!rawContentType.toLowerCase().includes("multipart/form-data")) {
     throw new ApiFailure(422, "VALIDATION_FAILED", "Oczekiwano żądania multipart/form-data");
   }
 
+  const bodyBytes = await readBoundedMultipartBody(request, maxBodyBytes, maxBytes);
+
   let formData: FormData;
   try {
-    formData = await request.formData();
+    formData = await new Response(bodyBytes, { headers: { "content-type": rawContentType } }).formData();
   } catch {
     throw new ApiFailure(422, "VALIDATION_FAILED", "Niepoprawna treść multipart/form-data");
   }
@@ -296,7 +349,7 @@ export async function getAttachmentContent(
     });
   }
 
-  const object = await getObject(attachment.storageKey);
+  const object = await getObject(attachment.storageKey, { abortSignal: request.signal });
   const contentLength = object.contentLength ?? attachment.sizeBytes;
 
   return new Response(object.body, {

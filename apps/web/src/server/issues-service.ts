@@ -13,6 +13,7 @@ import {
   type TeamMember,
 } from "@kivotasks/contracts";
 import { ApiFailure } from "./api";
+import { deleteAttachmentObjectsBestEffort } from "./attachments-service";
 import type { Caller } from "./auth";
 import { listTeamMembersWithAccount } from "./core-directory";
 import {
@@ -278,6 +279,9 @@ export async function deleteIssue(caller: Caller, issueId: string): Promise<void
   const deleted = await store.softDeleteIssue(caller, issueId);
   if (!deleted) {
     throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono zadania");
+  }
+  if (deleted.deletedAttachmentKeys.length > 0) {
+    await deleteAttachmentObjectsBestEffort(deleted.deletedAttachmentKeys);
   }
 }
 

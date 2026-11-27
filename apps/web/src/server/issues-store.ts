@@ -172,6 +172,10 @@ export interface CreateIssueAttachmentStoreInput {
 
 export type IssueLookup = { type: "id"; id: string } | { type: "identifier"; key: string; number: number };
 
+export interface SoftDeleteIssueResult {
+  readonly deletedAttachmentKeys: string[];
+}
+
 export interface IssuesStore {
   // Teams
   listTeams(actor: Actor, scope: TeamFilterScope): Promise<Team[]>;
@@ -212,7 +216,7 @@ export interface IssuesStore {
     input: UpdateIssueStoreInput,
     readableTeamIds: TeamFilterScope,
   ): Promise<UpdateIssueStoreResult | null>;
-  softDeleteIssue(actor: Actor, issueId: string): Promise<boolean>;
+  softDeleteIssue(actor: Actor, issueId: string): Promise<SoftDeleteIssueResult | null>;
 
   // Relations
   createIssueRelation(
