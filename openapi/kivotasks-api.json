@@ -43,7 +43,15 @@
     },
     {
       "name": "Issues",
-      "description": "Zadania, podzadania oraz relacje między zadaniami."
+      "description": "Zadania, podzadania, relacje, historia aktywności i obserwowanie zadań."
+    },
+    {
+      "name": "Comments",
+      "description": "Komentarze w zadaniach, wzmianki (@mentions) i reakcje emoji."
+    },
+    {
+      "name": "Inbox",
+      "description": "Skrzynka powiadomień zalogowanej osoby w KivoTasks."
     },
     {
       "name": "Search",
@@ -72,6 +80,374 @@
           },
           "500": {
             "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inbox": {
+      "get": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "listInboxItems",
+        "summary": "Lista powiadomień w skrzynce zalogowanej osoby",
+        "description": "Zwraca niezarchiwizowane powiadomienia zalogowanej osoby od najnowszych ze stronicowaniem kursorowym. Parametr `filter=unread` zwraca wyłącznie nieprzeczytane, a `filter=all` (domyślny) wszystkie niezarchiwizowane.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "filter",
+            "in": "query",
+            "required": false,
+            "description": "Zakres wpisów: `unread` (nieprzeczytane) albo `all` (wszystkie niezarchiwizowane, domyślnie).",
+            "schema": {
+              "$ref": "#/components/schemas/InboxFilter"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Liczba elementów na stronie (1-100, domyślnie 50).",
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Nieprzezroczysty kursor następnej strony z pola `meta.nextCursor`.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strona listy powiadomień w skrzynce oraz `meta.nextCursor`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxItemListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inbox/read-all": {
+      "post": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "markAllInboxRead",
+        "summary": "Oznaczenie wszystkich powiadomień jako przeczytane",
+        "description": "Oznacza wszystkie nieprzeczytane, niezarchiwizowane powiadomienia zalogowanej osoby jako przeczytane.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liczba oznaczonych powiadomień.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxReadAllResultResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inbox/unread-count": {
+      "get": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "getInboxUnreadCount",
+        "summary": "Liczba nieprzeczytanych powiadomień w skrzynce",
+        "description": "Zwraca liczbę nieprzeczytanych i niezarchiwizowanych powiadomień zalogowanej osoby.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liczba nieprzeczytanych wpisów w skrzynce.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxUnreadCountResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inbox/{itemId}": {
+      "patch": {
+        "tags": [
+          "Inbox"
+        ],
+        "operationId": "updateInboxItem",
+        "summary": "Oznaczenie wpisu skrzynki jako przeczytany, nieprzeczytany lub zarchiwizowany",
+        "description": "Aktualizuje stan odczytu (`read`) lub archiwizacji (`archived`) własnego wpisu w skrzynce. Wpisy należące do innych osób zwracają `404 NOT_FOUND`.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator wpisu w skrzynce powiadomień (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Docelowy stan `read` i/lub `archived`.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateInboxItemInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Zaktualizowany wpis w skrzynce.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxItemResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -738,6 +1114,837 @@
         }
       }
     },
+    "/api/v1/issues/{issueId}/activity": {
+      "get": {
+        "tags": [
+          "Issues"
+        ],
+        "operationId": "listIssueActivity",
+        "summary": "Strumień aktywności zadania (historia zmian i komentarze)",
+        "description": "Zwraca zdarzenia historii zadania oraz komentarze połączone chronologicznie (od najstarszego do najnowszego) ze stronicowaniem kursorowym (`limit`, `cursor`, `meta.nextCursor`).",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zadania (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Liczba elementów na stronie (1-100, domyślnie 50).",
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Nieprzezroczysty kursor następnej strony z pola `meta.nextCursor`.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strona strumienia aktywności zadania oraz `meta.nextCursor`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueActivityListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/issues/{issueId}/comments": {
+      "get": {
+        "tags": [
+          "Comments"
+        ],
+        "operationId": "listIssueComments",
+        "summary": "Lista komentarzy w zadaniu",
+        "description": "Zwraca komentarze zadania w kolejności chronologicznej (od najstarszego do najnowszego) ze stronicowaniem kursorowym. Komentarze usunięte miękko mają `deleted: true` oraz `body: null`. Dostępne dla każdej osoby widzącej zadanie (w tym roli Gość).",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zadania (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Liczba elementów na stronie (1-100, domyślnie 50).",
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Nieprzezroczysty kursor następnej strony z pola `meta.nextCursor`.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strona listy komentarzy zadania oraz `meta.nextCursor`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueCommentListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Comments"
+        ],
+        "operationId": "createIssueComment",
+        "summary": "Dodanie komentarza do zadania",
+        "description": "Dodaje komentarz Markdown (1-10 000 znaków) do zadania. Dostępne dla każdej osoby widzącej zadanie (`issues.read` lub `issues.write`). Wzmianki `@[Imię Nazwisko](accountId)` są zapisywane wyłącznie dla aktywnych członków zespołu z kontem w Core; autor oraz osoby wspomniane zostają obserwującymi zadania, a wpisy w skrzynce (`MENTIONED` / `COMMENTED`, bez duplikatów i bez sprawcy) powstają w tej samej transakcji.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zadania (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Treść komentarza w formacie Markdown.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateIssueCommentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Utworzony komentarz.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueCommentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/issues/{issueId}/comments/{commentId}": {
+      "patch": {
+        "tags": [
+          "Comments"
+        ],
+        "operationId": "updateIssueComment",
+        "summary": "Edycja własnego komentarza",
+        "description": "Zmienia treść komentarza i ustawia `editedAt`. Dozwolone wyłącznie dla autora komentarza; zadania spoza zasięgu odczytu zwracają `404 NOT_FOUND` przed `403`.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zadania (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "commentId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator komentarza (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Nowa treść komentarza w formacie Markdown.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateIssueCommentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Zaktualizowany komentarz.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueCommentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Comments"
+        ],
+        "operationId": "deleteIssueComment",
+        "summary": "Miękkie usunięcie komentarza",
+        "description": "Oznacza komentarz jako usunięty (`deletedAt`), ukrywając jego treść. Własny komentarz może usunąć autor, a cudzy osoba z `kivotasks.teams.manage` na zespole zadania.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zadania (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "commentId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator komentarza (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Komentarz został oznaczony jako usunięty."
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/issues/{issueId}/comments/{commentId}/reactions/{emoji}": {
+      "put": {
+        "tags": [
+          "Comments"
+        ],
+        "operationId": "addCommentReaction",
+        "summary": "Dodanie reakcji emoji do komentarza",
+        "description": "Idempotentnie dodaje reakcję ze stałego zestawu (👍, ❤️, 🎉, 😄, 👀, 🚀) do aktywnego komentarza. Dostępne dla każdej osoby widzącej zadanie (w tym roli Gość).",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zadania (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "commentId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator komentarza (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "emoji",
+            "in": "path",
+            "required": true,
+            "description": "Emoji reakcji zakodowane w URL (dozwolone: 👍, ❤️, 🎉, 😄, 👀, 🚀).",
+            "schema": {
+              "$ref": "#/components/schemas/CommentReactionEmoji"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Aktualne podsumowanie reakcji komentarza.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommentReactionsResultResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Comments"
+        ],
+        "operationId": "removeCommentReaction",
+        "summary": "Usunięcie własnej reakcji emoji z komentarza",
+        "description": "Idempotentnie usuwa reakcję zalogowanej osoby z komentarza.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zadania (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "commentId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator komentarza (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "emoji",
+            "in": "path",
+            "required": true,
+            "description": "Emoji reakcji zakodowane w URL (dozwolone: 👍, ❤️, 🎉, 😄, 👀, 🚀).",
+            "schema": {
+              "$ref": "#/components/schemas/CommentReactionEmoji"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Reakcja została usunięta."
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/issues/{issueId}/relations": {
       "post": {
         "tags": [
@@ -905,6 +2112,203 @@
         "responses": {
           "204": {
             "description": "Relacja została usunięta."
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/issues/{issueId}/subscription": {
+      "put": {
+        "tags": [
+          "Issues"
+        ],
+        "operationId": "subscribeIssue",
+        "summary": "Rozpoczęcie obserwowania zadania",
+        "description": "Idempotentnie dodaje zalogowaną osobę do obserwujących zadanie. Dostępne dla każdej osoby widzącej zadanie.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zadania (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stan obserwowania zadania.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueSubscriptionResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Issues"
+        ],
+        "operationId": "unsubscribeIssue",
+        "summary": "Zakończenie obserwowania zadania",
+        "description": "Idempotentnie usuwa zalogowaną osobę z obserwujących zadanie.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zadania (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Obserwowanie zadania zostało wyłączone."
           },
           "401": {
             "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
@@ -2675,12 +4079,94 @@
           "purple"
         ]
       },
+      "CommentReactionEmoji": {
+        "type": "string",
+        "enum": [
+          "👍",
+          "❤️",
+          "🎉",
+          "😄",
+          "👀",
+          "🚀"
+        ]
+      },
+      "CommentReactionSummary": {
+        "type": "object",
+        "properties": {
+          "emoji": {
+            "$ref": "#/components/schemas/CommentReactionEmoji"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "reactedByMe": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "emoji",
+          "count",
+          "reactedByMe"
+        ]
+      },
+      "CommentReactionsResult": {
+        "type": "object",
+        "properties": {
+          "commentId": {
+            "type": "string"
+          },
+          "reactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommentReactionSummary"
+            }
+          }
+        },
+        "required": [
+          "commentId",
+          "reactions"
+        ]
+      },
+      "CommentReactionsResultResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CommentReactionsResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
       "CoreUnitType": {
         "type": "string",
         "enum": [
           "BRANCH",
           "DEPARTMENT",
           "TEAM"
+        ]
+      },
+      "CreateIssueCommentInput": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          }
+        },
+        "required": [
+          "body"
         ]
       },
       "CreateIssueInput": {
@@ -2906,6 +4392,444 @@
           "error"
         ]
       },
+      "InboxFilter": {
+        "type": "string",
+        "enum": [
+          "unread",
+          "all"
+        ]
+      },
+      "InboxIssueSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "teamId": {
+            "type": "string"
+          },
+          "identifier": {
+            "type": "string"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "title": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/IssueStateSummary"
+          }
+        },
+        "required": [
+          "id",
+          "teamId",
+          "identifier",
+          "number",
+          "title",
+          "state"
+        ]
+      },
+      "InboxItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "recipientAccountId": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/InboxItemKind"
+          },
+          "issueId": {
+            "type": "string"
+          },
+          "issue": {
+            "$ref": "#/components/schemas/InboxIssueSummary"
+          },
+          "actorAccountId": {
+            "type": "string"
+          },
+          "actorName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "commentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "commentExcerpt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "readAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "organizationId",
+          "recipientAccountId",
+          "kind",
+          "issueId",
+          "issue",
+          "actorAccountId",
+          "actorName",
+          "commentId",
+          "commentExcerpt",
+          "createdAt",
+          "readAt",
+          "archivedAt"
+        ]
+      },
+      "InboxItemKind": {
+        "type": "string",
+        "enum": [
+          "ASSIGNED",
+          "MENTIONED",
+          "COMMENTED"
+        ]
+      },
+      "InboxItemList": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/InboxItem"
+        }
+      },
+      "InboxItemListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/InboxItemList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiListMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "InboxItemResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/InboxItem"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "InboxReadAllResult": {
+        "type": "object",
+        "properties": {
+          "updatedCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "updatedCount"
+        ]
+      },
+      "InboxReadAllResultResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/InboxReadAllResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "InboxUnreadCount": {
+        "type": "object",
+        "properties": {
+          "unreadCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "unreadCount"
+        ]
+      },
+      "InboxUnreadCountResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/InboxUnreadCount"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "IssueActivityCommentItem": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "comment"
+          },
+          "id": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "comment": {
+            "$ref": "#/components/schemas/IssueComment"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "createdAt",
+          "comment"
+        ]
+      },
+      "IssueActivityEventItem": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "event"
+          },
+          "id": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "event": {
+            "$ref": "#/components/schemas/IssueEvent"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "createdAt",
+          "event"
+        ]
+      },
+      "IssueActivityItem": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/IssueActivityCommentItem"
+          },
+          {
+            "$ref": "#/components/schemas/IssueActivityEventItem"
+          }
+        ]
+      },
+      "IssueActivityList": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/IssueActivityItem"
+        }
+      },
+      "IssueActivityListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/IssueActivityList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiListMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "IssueComment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "teamId": {
+            "type": "string"
+          },
+          "issueId": {
+            "type": "string"
+          },
+          "authorAccountId": {
+            "type": "string"
+          },
+          "authorName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "mentionedAccountIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reactions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CommentReactionSummary"
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "editedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deletedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "organizationId",
+          "teamId",
+          "issueId",
+          "authorAccountId",
+          "authorName",
+          "body",
+          "deleted",
+          "mentionedAccountIds",
+          "reactions",
+          "createdAt",
+          "updatedAt",
+          "editedAt",
+          "deletedAt"
+        ]
+      },
+      "IssueCommentList": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/IssueComment"
+        }
+      },
+      "IssueCommentListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/IssueCommentList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiListMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "IssueCommentResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/IssueComment"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
       "IssueDetail": {
         "type": "object",
         "properties": {
@@ -3031,6 +4955,9 @@
             "items": {
               "$ref": "#/components/schemas/IssueRelationView"
             }
+          },
+          "isSubscribed": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -3058,7 +4985,8 @@
           "description",
           "parent",
           "children",
-          "relations"
+          "relations",
+          "isSubscribed"
         ]
       },
       "IssueDetailResponse": {
@@ -3078,6 +5006,96 @@
           "data",
           "meta",
           "error"
+        ]
+      },
+      "IssueEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "teamId": {
+            "type": "string"
+          },
+          "issueId": {
+            "type": "string"
+          },
+          "actorAccountId": {
+            "type": "string"
+          },
+          "actorName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/IssueEventType"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "after": {
+            "anyOf": [
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "organizationId",
+          "teamId",
+          "issueId",
+          "actorAccountId",
+          "actorName",
+          "type",
+          "before",
+          "after",
+          "createdAt"
+        ]
+      },
+      "IssueEventType": {
+        "type": "string",
+        "enum": [
+          "CREATED",
+          "TITLE_CHANGED",
+          "DESCRIPTION_CHANGED",
+          "STATE_CHANGED",
+          "PRIORITY_CHANGED",
+          "ASSIGNEE_CHANGED",
+          "LABELS_CHANGED",
+          "DUE_DATE_CHANGED",
+          "ESTIMATE_CHANGED",
+          "PARENT_CHANGED",
+          "RELATION_ADDED",
+          "RELATION_REMOVED",
+          "DELETED"
         ]
       },
       "IssueLabelSummary": {
@@ -3385,6 +5403,40 @@
           "category",
           "color",
           "position"
+        ]
+      },
+      "IssueSubscription": {
+        "type": "object",
+        "properties": {
+          "issueId": {
+            "type": "string"
+          },
+          "isSubscribed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "issueId",
+          "isSubscribed"
+        ]
+      },
+      "IssueSubscriptionResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/IssueSubscription"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
         ]
       },
       "Label": {
@@ -3805,6 +5857,30 @@
           "data",
           "meta",
           "error"
+        ]
+      },
+      "UpdateInboxItemInput": {
+        "type": "object",
+        "properties": {
+          "read": {
+            "type": "boolean"
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UpdateIssueCommentInput": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          }
+        },
+        "required": [
+          "body"
         ]
       },
       "UpdateIssueInput": {

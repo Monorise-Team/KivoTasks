@@ -111,6 +111,84 @@ describe("klient API KivoTasks", () => {
     expect(seen.url).toBe("/api/v1/search?q=MAG-12");
   });
 
+  it("obsługuje komentarze, reakcje z kodowaniem emoji, aktywność, obserwowanie i skrzynkę powiadomień", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+
+    const createCommentClient = createClient({
+      fetch: fakeFetch(201, { data: { id: "c-1", body: "Hej" }, meta: {}, error: null }, seen),
+    });
+    await createCommentClient.issues.createComment("i-1", { body: "Hej" });
+    expect(seen.url).toBe("/api/v1/issues/i-1/comments");
+    expect(seen.init?.method).toBe("POST");
+
+    const reactClient = createClient({
+      fetch: fakeFetch(
+        200,
+        {
+          data: { commentId: "c-1", reactions: [{ emoji: "👍", count: 1, reactedByMe: true }] },
+          meta: {},
+          error: null,
+        },
+        seen,
+      ),
+    });
+    await reactClient.issues.addReaction("i-1", "c-1", "👍");
+    expect(seen.url).toBe(`/api/v1/issues/i-1/comments/c-1/reactions/${encodeURIComponent("👍")}`);
+    expect(seen.init?.method).toBe("PUT");
+
+    const removeReactClient = createClient({ fetch: fakeFetch(204, null, seen) });
+    await expect(removeReactClient.issues.removeReaction("i-1", "c-1", "🚀")).resolves.toBeUndefined();
+    expect(seen.url).toBe(`/api/v1/issues/i-1/comments/c-1/reactions/${encodeURIComponent("🚀")}`);
+    expect(seen.init?.method).toBe("DELETE");
+
+    const activityClient = createClient({
+      fetch: fakeFetch(200, { data: [], meta: { nextCursor: "cur-2" }, error: null }, seen),
+    });
+    expect(await activityClient.issues.listActivity("i-1", { limit: 25, cursor: "cur-1" })).toEqual({
+      items: [],
+      nextCursor: "cur-2",
+    });
+    expect(seen.url).toBe("/api/v1/issues/i-1/activity?limit=25&cursor=cur-1");
+
+    const subClient = createClient({
+      fetch: fakeFetch(200, { data: { issueId: "i-1", isSubscribed: true }, meta: {}, error: null }, seen),
+    });
+    expect(await subClient.issues.subscribe("i-1")).toEqual({ issueId: "i-1", isSubscribed: true });
+    expect(seen.url).toBe("/api/v1/issues/i-1/subscription");
+    expect(seen.init?.method).toBe("PUT");
+
+    const unsubClient = createClient({ fetch: fakeFetch(204, null, seen) });
+    await expect(unsubClient.issues.unsubscribe("i-1")).resolves.toBeUndefined();
+    expect(seen.url).toBe("/api/v1/issues/i-1/subscription");
+    expect(seen.init?.method).toBe("DELETE");
+
+    const inboxClient = createClient({
+      fetch: fakeFetch(200, { data: [], meta: { nextCursor: null }, error: null }, seen),
+    });
+    await inboxClient.inbox.list({ filter: "unread", limit: 30, cursor: "c0" });
+    expect(seen.url).toBe("/api/v1/inbox?filter=unread&limit=30&cursor=c0");
+
+    const unreadClient = createClient({
+      fetch: fakeFetch(200, { data: { unreadCount: 4 }, meta: {}, error: null }, seen),
+    });
+    expect(await unreadClient.inbox.unreadCount()).toEqual({ unreadCount: 4 });
+    expect(seen.url).toBe("/api/v1/inbox/unread-count");
+
+    const patchInboxClient = createClient({
+      fetch: fakeFetch(200, { data: { id: "n-1", readAt: "2026-11-27T04:00:00.000Z" }, meta: {}, error: null }, seen),
+    });
+    await patchInboxClient.inbox.update("n-1", { read: true });
+    expect(seen.url).toBe("/api/v1/inbox/n-1");
+    expect(seen.init?.method).toBe("PATCH");
+
+    const readAllClient = createClient({
+      fetch: fakeFetch(200, { data: { updatedCount: 4 }, meta: {}, error: null }, seen),
+    });
+    expect(await readAllClient.inbox.markAllRead()).toEqual({ updatedCount: 4 });
+    expect(seen.url).toBe("/api/v1/inbox/read-all");
+    expect(seen.init?.method).toBe("POST");
+  });
+
   it("zamienia błąd API oraz błąd sieci na ApiError z kodem", async () => {
     const productDeniedClient = createClient({
       fetch: fakeFetch(403, {

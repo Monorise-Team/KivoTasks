@@ -428,6 +428,7 @@ export const IssueDetail = IssueListItem.extend({
   parent: IssueReference.nullable(),
   children: z.array(IssueReference),
   relations: z.array(IssueRelationView),
+  isSubscribed: z.boolean(),
 });
 export type IssueDetail = z.infer<typeof IssueDetail>;
 
@@ -518,5 +519,206 @@ export const SearchIssuesResult = z.object({
   issues: z.array(IssueListItem),
 });
 export type SearchIssuesResult = z.infer<typeof SearchIssuesResult>;
+
+// ── Współpraca etapu 2a: komentarze, reakcje, historia, obserwujący i skrzynka ──
+
+export const COMMENT_REACTION_EMOJIS = ["👍", "❤️", "🎉", "😄", "👀", "🚀"] as const;
+export const CommentReactionEmoji = z.enum(COMMENT_REACTION_EMOJIS);
+export type CommentReactionEmoji = z.infer<typeof CommentReactionEmoji>;
+
+export const ISSUE_EVENT_TYPES = [
+  "CREATED",
+  "TITLE_CHANGED",
+  "DESCRIPTION_CHANGED",
+  "STATE_CHANGED",
+  "PRIORITY_CHANGED",
+  "ASSIGNEE_CHANGED",
+  "LABELS_CHANGED",
+  "DUE_DATE_CHANGED",
+  "ESTIMATE_CHANGED",
+  "PARENT_CHANGED",
+  "RELATION_ADDED",
+  "RELATION_REMOVED",
+  "DELETED",
+] as const;
+export const IssueEventType = z.enum(ISSUE_EVENT_TYPES);
+export type IssueEventType = z.infer<typeof IssueEventType>;
+
+export const INBOX_ITEM_KINDS = ["ASSIGNED", "MENTIONED", "COMMENTED"] as const;
+export const InboxItemKind = z.enum(INBOX_ITEM_KINDS);
+export type InboxItemKind = z.infer<typeof InboxItemKind>;
+
+export const INBOX_FILTERS = ["unread", "all"] as const;
+export const InboxFilter = z.enum(INBOX_FILTERS);
+export type InboxFilter = z.infer<typeof InboxFilter>;
+
+export const CommentReactionSummary = z.object({
+  emoji: CommentReactionEmoji,
+  count: z.number().int().min(1),
+  reactedByMe: z.boolean(),
+});
+export type CommentReactionSummary = z.infer<typeof CommentReactionSummary>;
+
+export const IssueComment = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  teamId: z.string(),
+  issueId: z.string(),
+  authorAccountId: z.string(),
+  authorName: z.string().nullable(),
+  body: z.string().nullable(),
+  deleted: z.boolean(),
+  mentionedAccountIds: z.array(z.string()),
+  reactions: z.array(CommentReactionSummary),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  editedAt: z.string().nullable(),
+  deletedAt: z.string().nullable(),
+});
+export type IssueComment = z.infer<typeof IssueComment>;
+
+export const IssueCommentList = z.array(IssueComment);
+export type IssueCommentList = z.infer<typeof IssueCommentList>;
+
+export const CreateIssueCommentInput = z.object({
+  body: z
+    .string()
+    .min(1, "Treść komentarza jest wymagana")
+    .max(10_000, "Komentarz może mieć najwyżej 10 000 znaków")
+    .refine((value) => !value.includes("\u0000"), "Treść komentarza nie może zawierać znaku NUL")
+    .refine((value) => value.trim().length > 0, "Treść komentarza jest wymagana"),
+});
+export type CreateIssueCommentInput = z.input<typeof CreateIssueCommentInput>;
+
+export const UpdateIssueCommentInput = z.object({
+  body: z
+    .string()
+    .min(1, "Treść komentarza nie może być pusta")
+    .max(10_000, "Komentarz może mieć najwyżej 10 000 znaków")
+    .refine((value) => !value.includes("\u0000"), "Treść komentarza nie może zawierać znaku NUL")
+    .refine((value) => value.trim().length > 0, "Treść komentarza nie może być pusta"),
+});
+export type UpdateIssueCommentInput = z.input<typeof UpdateIssueCommentInput>;
+
+export const CommentReactionsResult = z.object({
+  commentId: z.string(),
+  reactions: z.array(CommentReactionSummary),
+});
+export type CommentReactionsResult = z.infer<typeof CommentReactionsResult>;
+
+export const IssueCommentsQuery = z.object({
+  limit: PageLimit,
+  cursor: PageCursor.optional(),
+});
+export type IssueCommentsQuery = z.input<typeof IssueCommentsQuery>;
+export type ParsedIssueCommentsQuery = z.infer<typeof IssueCommentsQuery>;
+
+export const IssueEventPayload = z.record(z.string(), z.unknown()).nullable();
+export type IssueEventPayload = z.infer<typeof IssueEventPayload>;
+
+export const IssueEvent = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  teamId: z.string(),
+  issueId: z.string(),
+  actorAccountId: z.string(),
+  actorName: z.string().nullable(),
+  type: IssueEventType,
+  before: IssueEventPayload,
+  after: IssueEventPayload,
+  createdAt: z.string(),
+});
+export type IssueEvent = z.infer<typeof IssueEvent>;
+
+export const IssueActivityCommentItem = z.object({
+  kind: z.literal("comment"),
+  id: z.string(),
+  createdAt: z.string(),
+  comment: IssueComment,
+});
+export type IssueActivityCommentItem = z.infer<typeof IssueActivityCommentItem>;
+
+export const IssueActivityEventItem = z.object({
+  kind: z.literal("event"),
+  id: z.string(),
+  createdAt: z.string(),
+  event: IssueEvent,
+});
+export type IssueActivityEventItem = z.infer<typeof IssueActivityEventItem>;
+
+export const IssueActivityItem = z.discriminatedUnion("kind", [IssueActivityCommentItem, IssueActivityEventItem]);
+export type IssueActivityItem = z.infer<typeof IssueActivityItem>;
+
+export const IssueActivityList = z.array(IssueActivityItem);
+export type IssueActivityList = z.infer<typeof IssueActivityList>;
+
+export const IssueActivityQuery = z.object({
+  limit: PageLimit,
+  cursor: PageCursor.optional(),
+});
+export type IssueActivityQuery = z.input<typeof IssueActivityQuery>;
+export type ParsedIssueActivityQuery = z.infer<typeof IssueActivityQuery>;
+
+export const IssueSubscription = z.object({
+  issueId: z.string(),
+  isSubscribed: z.boolean(),
+});
+export type IssueSubscription = z.infer<typeof IssueSubscription>;
+
+export const InboxIssueSummary = z.object({
+  id: z.string(),
+  teamId: z.string(),
+  identifier: z.string(),
+  number: z.number().int(),
+  title: z.string(),
+  state: IssueStateSummary,
+});
+export type InboxIssueSummary = z.infer<typeof InboxIssueSummary>;
+
+export const InboxItem = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  recipientAccountId: z.string(),
+  kind: InboxItemKind,
+  issueId: z.string(),
+  issue: InboxIssueSummary,
+  actorAccountId: z.string(),
+  actorName: z.string().nullable(),
+  commentId: z.string().nullable(),
+  commentExcerpt: z.string().nullable(),
+  createdAt: z.string(),
+  readAt: z.string().nullable(),
+  archivedAt: z.string().nullable(),
+});
+export type InboxItem = z.infer<typeof InboxItem>;
+
+export const InboxItemList = z.array(InboxItem);
+export type InboxItemList = z.infer<typeof InboxItemList>;
+
+export const InboxListQuery = z.object({
+  filter: InboxFilter.default("all"),
+  limit: PageLimit,
+  cursor: PageCursor.optional(),
+});
+export type InboxListQuery = z.input<typeof InboxListQuery>;
+export type ParsedInboxListQuery = z.infer<typeof InboxListQuery>;
+
+export const InboxUnreadCount = z.object({
+  unreadCount: z.number().int().min(0),
+});
+export type InboxUnreadCount = z.infer<typeof InboxUnreadCount>;
+
+export const UpdateInboxItemInput = z
+  .object({
+    read: z.boolean().optional(),
+    archived: z.boolean().optional(),
+  })
+  .refine((data) => data.read !== undefined || data.archived !== undefined, "Podaj co najmniej jedno pole do zmiany");
+export type UpdateInboxItemInput = z.input<typeof UpdateInboxItemInput>;
+
+export const InboxReadAllResult = z.object({
+  updatedCount: z.number().int().min(0),
+});
+export type InboxReadAllResult = z.infer<typeof InboxReadAllResult>;
 
 export * from "./permissions.js";

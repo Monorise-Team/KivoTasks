@@ -1,7 +1,14 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, type Prisma } from "./generated/prisma/client.js";
 
-export { IssueRelationType, Prisma, PrismaClient, WorkflowStateCategory } from "./generated/prisma/client.js";
+export {
+  InboxItemKind,
+  IssueEventType,
+  IssueRelationType,
+  Prisma,
+  PrismaClient,
+  WorkflowStateCategory,
+} from "./generated/prisma/client.js";
 export type * from "./generated/prisma/models.js";
 export { uuidv7 } from "./ids.js";
 

@@ -18,6 +18,12 @@ afterAll(async () => {
 
 async function cleanupTenant(actor: Actor): Promise<void> {
   await withUser(getDb(), actor, async (tx) => {
+    await tx.$executeRaw`DELETE FROM "public"."inbox_items"`;
+    await tx.$executeRaw`DELETE FROM "public"."comment_reactions"`;
+    await tx.$executeRaw`DELETE FROM "public"."comment_mentions"`;
+    await tx.$executeRaw`DELETE FROM "public"."issue_comments"`;
+    await tx.$executeRaw`DELETE FROM "public"."issue_events"`;
+    await tx.$executeRaw`DELETE FROM "public"."issue_subscribers"`;
     await tx.issueRelation.deleteMany({});
     await tx.issueLabel.deleteMany({});
     await tx.issue.updateMany({ where: { parentId: { not: null } }, data: { parentId: null } });
@@ -85,6 +91,18 @@ describe("Separacja firm w bazie danych (checkTenantIsolation, ADR-0037)", () =>
           storedRelatedIssueId: issue2.id,
           storedType: "BLOCKS",
         });
+        const colleagueId = uuidv7();
+        const comment = await prismaIssuesStore.createIssueComment(actor, {
+          issueId: issue1.id,
+          teamId: team.id,
+          body: `Współpraca @[Kolega](${colleagueId})`,
+          mentionedAccountIds: [colleagueId],
+        });
+        await prismaIssuesStore.addCommentReaction(actor, {
+          issueId: issue1.id,
+          commentId: comment.id,
+          emoji: "👍",
+        });
       },
       readAsTenant: async (tenantId) => {
         const actor = actorFor(tenantId);
@@ -95,6 +113,24 @@ describe("Separacja firm w bazie danych (checkTenantIsolation, ADR-0037)", () =>
           ...(await tx.issue.findMany({ select: { id: true, organizationId: true } })),
           ...(await tx.issueLabel.findMany({ select: { issueId: true, labelId: true, organizationId: true } })),
           ...(await tx.issueRelation.findMany({ select: { id: true, organizationId: true } })),
+          ...(await tx.$queryRaw<{ id: string; organizationId: string }[]>`
+            SELECT "id"::text AS "id", "organization_id"::text AS "organizationId" FROM "public"."issue_comments"
+          `),
+          ...(await tx.$queryRaw<{ commentId: string; accountId: string; organizationId: string }[]>`
+            SELECT "comment_id"::text AS "commentId", "account_id"::text AS "accountId", "organization_id"::text AS "organizationId" FROM "public"."comment_mentions"
+          `),
+          ...(await tx.$queryRaw<{ id: string; organizationId: string }[]>`
+            SELECT "id"::text AS "id", "organization_id"::text AS "organizationId" FROM "public"."comment_reactions"
+          `),
+          ...(await tx.$queryRaw<{ id: string; organizationId: string }[]>`
+            SELECT "id"::text AS "id", "organization_id"::text AS "organizationId" FROM "public"."issue_events"
+          `),
+          ...(await tx.$queryRaw<{ issueId: string; accountId: string; organizationId: string }[]>`
+            SELECT "issue_id"::text AS "issueId", "account_id"::text AS "accountId", "organization_id"::text AS "organizationId" FROM "public"."issue_subscribers"
+          `),
+          ...(await tx.$queryRaw<{ id: string; organizationId: string }[]>`
+            SELECT "id"::text AS "id", "organization_id"::text AS "organizationId" FROM "public"."inbox_items"
+          `),
         ]);
         return allRows;
       },

@@ -12,9 +12,18 @@ import { createFakeCore, defineProductContractTests, type FakeCore } from "@mono
 import { NextRequest } from "next/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as health from "@/app/api/v1/health/route";
+import * as inbox from "@/app/api/v1/inbox/route";
+import * as inboxById from "@/app/api/v1/inbox/[itemId]/route";
+import * as inboxReadAll from "@/app/api/v1/inbox/read-all/route";
+import * as inboxUnreadCount from "@/app/api/v1/inbox/unread-count/route";
 import * as issueById from "@/app/api/v1/issues/[issueId]/route";
+import * as issueActivity from "@/app/api/v1/issues/[issueId]/activity/route";
+import * as issueComments from "@/app/api/v1/issues/[issueId]/comments/route";
+import * as issueCommentById from "@/app/api/v1/issues/[issueId]/comments/[commentId]/route";
+import * as commentReaction from "@/app/api/v1/issues/[issueId]/comments/[commentId]/reactions/[emoji]/route";
 import * as issueRelations from "@/app/api/v1/issues/[issueId]/relations/route";
 import * as issueRelationById from "@/app/api/v1/issues/[issueId]/relations/[relationId]/route";
+import * as issueSubscription from "@/app/api/v1/issues/[issueId]/subscription/route";
 import * as issues from "@/app/api/v1/issues/route";
 import * as me from "@/app/api/v1/me/route";
 import * as search from "@/app/api/v1/search/route";
@@ -99,6 +108,19 @@ const ROUTE_HANDLERS: Readonly<Record<string, AnyNextRouteHandler>> = {
   "DELETE /api/v1/issues/{issueId}": adapt(issueById.DELETE),
   "POST /api/v1/issues/{issueId}/relations": adapt(issueRelations.POST),
   "DELETE /api/v1/issues/{issueId}/relations/{relationId}": adapt(issueRelationById.DELETE),
+  "GET /api/v1/issues/{issueId}/comments": adapt(issueComments.GET),
+  "POST /api/v1/issues/{issueId}/comments": adapt(issueComments.POST),
+  "PATCH /api/v1/issues/{issueId}/comments/{commentId}": adapt(issueCommentById.PATCH),
+  "DELETE /api/v1/issues/{issueId}/comments/{commentId}": adapt(issueCommentById.DELETE),
+  "PUT /api/v1/issues/{issueId}/comments/{commentId}/reactions/{emoji}": adapt(commentReaction.PUT),
+  "DELETE /api/v1/issues/{issueId}/comments/{commentId}/reactions/{emoji}": adapt(commentReaction.DELETE),
+  "GET /api/v1/issues/{issueId}/activity": adapt(issueActivity.GET),
+  "PUT /api/v1/issues/{issueId}/subscription": adapt(issueSubscription.PUT),
+  "DELETE /api/v1/issues/{issueId}/subscription": adapt(issueSubscription.DELETE),
+  "GET /api/v1/inbox": adapt(inbox.GET),
+  "GET /api/v1/inbox/unread-count": adapt(inboxUnreadCount.GET),
+  "PATCH /api/v1/inbox/{itemId}": adapt(inboxById.PATCH),
+  "POST /api/v1/inbox/read-all": adapt(inboxReadAll.POST),
   "GET /api/v1/search": adapt(search.GET),
 };
 
@@ -249,6 +271,29 @@ await defineProductContractTests({
       body: { relatedIssueId: DUMMY_UUID_2, type: "BLOCKS" },
     },
     { method: "DELETE", path: `/api/v1/issues/${DUMMY_UUID_1}/relations/${DUMMY_UUID_2}` },
+    { method: "GET", path: `/api/v1/issues/${DUMMY_UUID_1}/comments` },
+    { method: "POST", path: `/api/v1/issues/${DUMMY_UUID_1}/comments`, body: { body: "Komentarz testowy" } },
+    {
+      method: "PATCH",
+      path: `/api/v1/issues/${DUMMY_UUID_1}/comments/${DUMMY_UUID_2}`,
+      body: { body: "Zmieniony komentarz" },
+    },
+    { method: "DELETE", path: `/api/v1/issues/${DUMMY_UUID_1}/comments/${DUMMY_UUID_2}` },
+    {
+      method: "PUT",
+      path: `/api/v1/issues/${DUMMY_UUID_1}/comments/${DUMMY_UUID_2}/reactions/${encodeURIComponent("👍")}`,
+    },
+    {
+      method: "DELETE",
+      path: `/api/v1/issues/${DUMMY_UUID_1}/comments/${DUMMY_UUID_2}/reactions/${encodeURIComponent("👍")}`,
+    },
+    { method: "GET", path: `/api/v1/issues/${DUMMY_UUID_1}/activity` },
+    { method: "PUT", path: `/api/v1/issues/${DUMMY_UUID_1}/subscription` },
+    { method: "DELETE", path: `/api/v1/issues/${DUMMY_UUID_1}/subscription` },
+    { method: "GET", path: "/api/v1/inbox" },
+    { method: "GET", path: "/api/v1/inbox/unread-count" },
+    { method: "PATCH", path: `/api/v1/inbox/${DUMMY_UUID_1}`, body: { read: true } },
+    { method: "POST", path: "/api/v1/inbox/read-all" },
     { method: "GET", path: "/api/v1/search?q=test" },
   ],
   openApi: () => buildOpenApiDocument(),

@@ -62,3 +62,33 @@ export type IssueLabel = Prisma.IssueLabelModel
  * Relacja między dwoma zadaniami w obrębie firmy (dozwolone relacje między zespołami).
  */
 export type IssueRelation = Prisma.IssueRelationModel
+/**
+ * Model IssueComment
+ * Komentarz w zadaniu KivoTasks (Markdown 1–10 000 znaków, miękkie usuwanie przez deleted_at).
+ */
+export type IssueComment = Prisma.IssueCommentModel
+/**
+ * Model CommentMention
+ * Wzmianka (@mention) zweryfikowanego członka zespołu z aktywnym kontem w komentarzu.
+ */
+export type CommentMention = Prisma.CommentMentionModel
+/**
+ * Model CommentReaction
+ * Reakcja emoji (stały zestaw 👍 ❤️ 🎉 😄 👀 🚀) na komentarzu.
+ */
+export type CommentReaction = Prisma.CommentReactionModel
+/**
+ * Model IssueEvent
+ * Wpis historii zmian zadania (zapisywany w tej samej transakcji co zmiana zadania).
+ */
+export type IssueEvent = Prisma.IssueEventModel
+/**
+ * Model IssueSubscriber
+ * Osoba obserwująca zadanie (otrzymuje wpisy COMMENTED w skrzynce powiadomień).
+ */
+export type IssueSubscriber = Prisma.IssueSubscriberModel
+/**
+ * Model InboxItem
+ * Powiadomienie w skrzynce KivoTasks (przypisanie, wzmianka albo nowy komentarz).
+ */
+export type InboxItem = Prisma.InboxItemModel

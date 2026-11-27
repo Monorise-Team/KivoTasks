@@ -355,6 +355,10 @@ export type IssueWhereInput = {
   issueLabels?: Prisma.IssueLabelListRelationFilter
   outgoingRelations?: Prisma.IssueRelationListRelationFilter
   incomingRelations?: Prisma.IssueRelationListRelationFilter
+  comments?: Prisma.IssueCommentListRelationFilter
+  events?: Prisma.IssueEventListRelationFilter
+  subscribers?: Prisma.IssueSubscriberListRelationFilter
+  inboxItems?: Prisma.InboxItemListRelationFilter
 }
 
 export type IssueOrderByWithRelationInput = {
@@ -385,6 +389,10 @@ export type IssueOrderByWithRelationInput = {
   issueLabels?: Prisma.IssueLabelOrderByRelationAggregateInput
   outgoingRelations?: Prisma.IssueRelationOrderByRelationAggregateInput
   incomingRelations?: Prisma.IssueRelationOrderByRelationAggregateInput
+  comments?: Prisma.IssueCommentOrderByRelationAggregateInput
+  events?: Prisma.IssueEventOrderByRelationAggregateInput
+  subscribers?: Prisma.IssueSubscriberOrderByRelationAggregateInput
+  inboxItems?: Prisma.InboxItemOrderByRelationAggregateInput
 }
 
 export type IssueWhereUniqueInput = Prisma.AtLeast<{
@@ -421,6 +429,10 @@ export type IssueWhereUniqueInput = Prisma.AtLeast<{
   issueLabels?: Prisma.IssueLabelListRelationFilter
   outgoingRelations?: Prisma.IssueRelationListRelationFilter
   incomingRelations?: Prisma.IssueRelationListRelationFilter
+  comments?: Prisma.IssueCommentListRelationFilter
+  events?: Prisma.IssueEventListRelationFilter
+  subscribers?: Prisma.IssueSubscriberListRelationFilter
+  inboxItems?: Prisma.InboxItemListRelationFilter
 }, "id" | "organizationId_id" | "organizationId_teamId_id" | "teamId_number">
 
 export type IssueOrderByWithAggregationInput = {
@@ -501,6 +513,10 @@ export type IssueCreateInput = {
   issueLabels?: Prisma.IssueLabelCreateNestedManyWithoutIssueInput
   outgoingRelations?: Prisma.IssueRelationCreateNestedManyWithoutIssueInput
   incomingRelations?: Prisma.IssueRelationCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemCreateNestedManyWithoutIssueInput
 }
 
 export type IssueUncheckedCreateInput = {
@@ -528,6 +544,10 @@ export type IssueUncheckedCreateInput = {
   issueLabels?: Prisma.IssueLabelUncheckedCreateNestedManyWithoutIssueInput
   outgoingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutIssueInput
   incomingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentUncheckedCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventUncheckedCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberUncheckedCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemUncheckedCreateNestedManyWithoutIssueInput
 }
 
 export type IssueUpdateInput = {
@@ -554,6 +574,10 @@ export type IssueUpdateInput = {
   issueLabels?: Prisma.IssueLabelUpdateManyWithoutIssueNestedInput
   outgoingRelations?: Prisma.IssueRelationUpdateManyWithoutIssueNestedInput
   incomingRelations?: Prisma.IssueRelationUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueUncheckedUpdateInput = {
@@ -581,6 +605,10 @@ export type IssueUncheckedUpdateInput = {
   issueLabels?: Prisma.IssueLabelUncheckedUpdateManyWithoutIssueNestedInput
   outgoingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutIssueNestedInput
   incomingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUncheckedUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUncheckedUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUncheckedUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUncheckedUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueCreateManyInput = {
@@ -971,6 +999,62 @@ export type IssueUpdateOneRequiredWithoutIncomingRelationsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.IssueUpdateToOneWithWhereWithoutIncomingRelationsInput, Prisma.IssueUpdateWithoutIncomingRelationsInput>, Prisma.IssueUncheckedUpdateWithoutIncomingRelationsInput>
 }
 
+export type IssueCreateNestedOneWithoutCommentsInput = {
+  create?: Prisma.XOR<Prisma.IssueCreateWithoutCommentsInput, Prisma.IssueUncheckedCreateWithoutCommentsInput>
+  connectOrCreate?: Prisma.IssueCreateOrConnectWithoutCommentsInput
+  connect?: Prisma.IssueWhereUniqueInput
+}
+
+export type IssueUpdateOneRequiredWithoutCommentsNestedInput = {
+  create?: Prisma.XOR<Prisma.IssueCreateWithoutCommentsInput, Prisma.IssueUncheckedCreateWithoutCommentsInput>
+  connectOrCreate?: Prisma.IssueCreateOrConnectWithoutCommentsInput
+  upsert?: Prisma.IssueUpsertWithoutCommentsInput
+  connect?: Prisma.IssueWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.IssueUpdateToOneWithWhereWithoutCommentsInput, Prisma.IssueUpdateWithoutCommentsInput>, Prisma.IssueUncheckedUpdateWithoutCommentsInput>
+}
+
+export type IssueCreateNestedOneWithoutEventsInput = {
+  create?: Prisma.XOR<Prisma.IssueCreateWithoutEventsInput, Prisma.IssueUncheckedCreateWithoutEventsInput>
+  connectOrCreate?: Prisma.IssueCreateOrConnectWithoutEventsInput
+  connect?: Prisma.IssueWhereUniqueInput
+}
+
+export type IssueUpdateOneRequiredWithoutEventsNestedInput = {
+  create?: Prisma.XOR<Prisma.IssueCreateWithoutEventsInput, Prisma.IssueUncheckedCreateWithoutEventsInput>
+  connectOrCreate?: Prisma.IssueCreateOrConnectWithoutEventsInput
+  upsert?: Prisma.IssueUpsertWithoutEventsInput
+  connect?: Prisma.IssueWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.IssueUpdateToOneWithWhereWithoutEventsInput, Prisma.IssueUpdateWithoutEventsInput>, Prisma.IssueUncheckedUpdateWithoutEventsInput>
+}
+
+export type IssueCreateNestedOneWithoutSubscribersInput = {
+  create?: Prisma.XOR<Prisma.IssueCreateWithoutSubscribersInput, Prisma.IssueUncheckedCreateWithoutSubscribersInput>
+  connectOrCreate?: Prisma.IssueCreateOrConnectWithoutSubscribersInput
+  connect?: Prisma.IssueWhereUniqueInput
+}
+
+export type IssueUpdateOneRequiredWithoutSubscribersNestedInput = {
+  create?: Prisma.XOR<Prisma.IssueCreateWithoutSubscribersInput, Prisma.IssueUncheckedCreateWithoutSubscribersInput>
+  connectOrCreate?: Prisma.IssueCreateOrConnectWithoutSubscribersInput
+  upsert?: Prisma.IssueUpsertWithoutSubscribersInput
+  connect?: Prisma.IssueWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.IssueUpdateToOneWithWhereWithoutSubscribersInput, Prisma.IssueUpdateWithoutSubscribersInput>, Prisma.IssueUncheckedUpdateWithoutSubscribersInput>
+}
+
+export type IssueCreateNestedOneWithoutInboxItemsInput = {
+  create?: Prisma.XOR<Prisma.IssueCreateWithoutInboxItemsInput, Prisma.IssueUncheckedCreateWithoutInboxItemsInput>
+  connectOrCreate?: Prisma.IssueCreateOrConnectWithoutInboxItemsInput
+  connect?: Prisma.IssueWhereUniqueInput
+}
+
+export type IssueUpdateOneRequiredWithoutInboxItemsNestedInput = {
+  create?: Prisma.XOR<Prisma.IssueCreateWithoutInboxItemsInput, Prisma.IssueUncheckedCreateWithoutInboxItemsInput>
+  connectOrCreate?: Prisma.IssueCreateOrConnectWithoutInboxItemsInput
+  upsert?: Prisma.IssueUpsertWithoutInboxItemsInput
+  connect?: Prisma.IssueWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.IssueUpdateToOneWithWhereWithoutInboxItemsInput, Prisma.IssueUpdateWithoutInboxItemsInput>, Prisma.IssueUncheckedUpdateWithoutInboxItemsInput>
+}
+
 export type IssueCreateWithoutTeamInput = {
   id: string
   number: number
@@ -994,6 +1078,10 @@ export type IssueCreateWithoutTeamInput = {
   issueLabels?: Prisma.IssueLabelCreateNestedManyWithoutIssueInput
   outgoingRelations?: Prisma.IssueRelationCreateNestedManyWithoutIssueInput
   incomingRelations?: Prisma.IssueRelationCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemCreateNestedManyWithoutIssueInput
 }
 
 export type IssueUncheckedCreateWithoutTeamInput = {
@@ -1019,6 +1107,10 @@ export type IssueUncheckedCreateWithoutTeamInput = {
   issueLabels?: Prisma.IssueLabelUncheckedCreateNestedManyWithoutIssueInput
   outgoingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutIssueInput
   incomingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentUncheckedCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventUncheckedCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberUncheckedCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemUncheckedCreateNestedManyWithoutIssueInput
 }
 
 export type IssueCreateOrConnectWithoutTeamInput = {
@@ -1096,6 +1188,10 @@ export type IssueCreateWithoutStateInput = {
   issueLabels?: Prisma.IssueLabelCreateNestedManyWithoutIssueInput
   outgoingRelations?: Prisma.IssueRelationCreateNestedManyWithoutIssueInput
   incomingRelations?: Prisma.IssueRelationCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemCreateNestedManyWithoutIssueInput
 }
 
 export type IssueUncheckedCreateWithoutStateInput = {
@@ -1120,6 +1216,10 @@ export type IssueUncheckedCreateWithoutStateInput = {
   issueLabels?: Prisma.IssueLabelUncheckedCreateNestedManyWithoutIssueInput
   outgoingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutIssueInput
   incomingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentUncheckedCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventUncheckedCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberUncheckedCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemUncheckedCreateNestedManyWithoutIssueInput
 }
 
 export type IssueCreateOrConnectWithoutStateInput = {
@@ -1171,6 +1271,10 @@ export type IssueCreateWithoutChildrenInput = {
   issueLabels?: Prisma.IssueLabelCreateNestedManyWithoutIssueInput
   outgoingRelations?: Prisma.IssueRelationCreateNestedManyWithoutIssueInput
   incomingRelations?: Prisma.IssueRelationCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemCreateNestedManyWithoutIssueInput
 }
 
 export type IssueUncheckedCreateWithoutChildrenInput = {
@@ -1197,6 +1301,10 @@ export type IssueUncheckedCreateWithoutChildrenInput = {
   issueLabels?: Prisma.IssueLabelUncheckedCreateNestedManyWithoutIssueInput
   outgoingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutIssueInput
   incomingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentUncheckedCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventUncheckedCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberUncheckedCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemUncheckedCreateNestedManyWithoutIssueInput
 }
 
 export type IssueCreateOrConnectWithoutChildrenInput = {
@@ -1227,6 +1335,10 @@ export type IssueCreateWithoutParentInput = {
   issueLabels?: Prisma.IssueLabelCreateNestedManyWithoutIssueInput
   outgoingRelations?: Prisma.IssueRelationCreateNestedManyWithoutIssueInput
   incomingRelations?: Prisma.IssueRelationCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemCreateNestedManyWithoutIssueInput
 }
 
 export type IssueUncheckedCreateWithoutParentInput = {
@@ -1251,6 +1363,10 @@ export type IssueUncheckedCreateWithoutParentInput = {
   issueLabels?: Prisma.IssueLabelUncheckedCreateNestedManyWithoutIssueInput
   outgoingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutIssueInput
   incomingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentUncheckedCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventUncheckedCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberUncheckedCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemUncheckedCreateNestedManyWithoutIssueInput
 }
 
 export type IssueCreateOrConnectWithoutParentInput = {
@@ -1297,6 +1413,10 @@ export type IssueUpdateWithoutChildrenInput = {
   issueLabels?: Prisma.IssueLabelUpdateManyWithoutIssueNestedInput
   outgoingRelations?: Prisma.IssueRelationUpdateManyWithoutIssueNestedInput
   incomingRelations?: Prisma.IssueRelationUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueUncheckedUpdateWithoutChildrenInput = {
@@ -1323,6 +1443,10 @@ export type IssueUncheckedUpdateWithoutChildrenInput = {
   issueLabels?: Prisma.IssueLabelUncheckedUpdateManyWithoutIssueNestedInput
   outgoingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutIssueNestedInput
   incomingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUncheckedUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUncheckedUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUncheckedUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUncheckedUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueUpsertWithWhereUniqueWithoutParentInput = {
@@ -1364,6 +1488,10 @@ export type IssueCreateWithoutIssueLabelsInput = {
   children?: Prisma.IssueCreateNestedManyWithoutParentInput
   outgoingRelations?: Prisma.IssueRelationCreateNestedManyWithoutIssueInput
   incomingRelations?: Prisma.IssueRelationCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemCreateNestedManyWithoutIssueInput
 }
 
 export type IssueUncheckedCreateWithoutIssueLabelsInput = {
@@ -1390,6 +1518,10 @@ export type IssueUncheckedCreateWithoutIssueLabelsInput = {
   children?: Prisma.IssueUncheckedCreateNestedManyWithoutParentInput
   outgoingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutIssueInput
   incomingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentUncheckedCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventUncheckedCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberUncheckedCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemUncheckedCreateNestedManyWithoutIssueInput
 }
 
 export type IssueCreateOrConnectWithoutIssueLabelsInput = {
@@ -1431,6 +1563,10 @@ export type IssueUpdateWithoutIssueLabelsInput = {
   children?: Prisma.IssueUpdateManyWithoutParentNestedInput
   outgoingRelations?: Prisma.IssueRelationUpdateManyWithoutIssueNestedInput
   incomingRelations?: Prisma.IssueRelationUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueUncheckedUpdateWithoutIssueLabelsInput = {
@@ -1457,6 +1593,10 @@ export type IssueUncheckedUpdateWithoutIssueLabelsInput = {
   children?: Prisma.IssueUncheckedUpdateManyWithoutParentNestedInput
   outgoingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutIssueNestedInput
   incomingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUncheckedUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUncheckedUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUncheckedUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUncheckedUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueCreateWithoutOutgoingRelationsInput = {
@@ -1482,6 +1622,10 @@ export type IssueCreateWithoutOutgoingRelationsInput = {
   children?: Prisma.IssueCreateNestedManyWithoutParentInput
   issueLabels?: Prisma.IssueLabelCreateNestedManyWithoutIssueInput
   incomingRelations?: Prisma.IssueRelationCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemCreateNestedManyWithoutIssueInput
 }
 
 export type IssueUncheckedCreateWithoutOutgoingRelationsInput = {
@@ -1508,6 +1652,10 @@ export type IssueUncheckedCreateWithoutOutgoingRelationsInput = {
   children?: Prisma.IssueUncheckedCreateNestedManyWithoutParentInput
   issueLabels?: Prisma.IssueLabelUncheckedCreateNestedManyWithoutIssueInput
   incomingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentUncheckedCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventUncheckedCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberUncheckedCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemUncheckedCreateNestedManyWithoutIssueInput
 }
 
 export type IssueCreateOrConnectWithoutOutgoingRelationsInput = {
@@ -1538,6 +1686,10 @@ export type IssueCreateWithoutIncomingRelationsInput = {
   children?: Prisma.IssueCreateNestedManyWithoutParentInput
   issueLabels?: Prisma.IssueLabelCreateNestedManyWithoutIssueInput
   outgoingRelations?: Prisma.IssueRelationCreateNestedManyWithoutIssueInput
+  comments?: Prisma.IssueCommentCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemCreateNestedManyWithoutIssueInput
 }
 
 export type IssueUncheckedCreateWithoutIncomingRelationsInput = {
@@ -1564,6 +1716,10 @@ export type IssueUncheckedCreateWithoutIncomingRelationsInput = {
   children?: Prisma.IssueUncheckedCreateNestedManyWithoutParentInput
   issueLabels?: Prisma.IssueLabelUncheckedCreateNestedManyWithoutIssueInput
   outgoingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutIssueInput
+  comments?: Prisma.IssueCommentUncheckedCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventUncheckedCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberUncheckedCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemUncheckedCreateNestedManyWithoutIssueInput
 }
 
 export type IssueCreateOrConnectWithoutIncomingRelationsInput = {
@@ -1605,6 +1761,10 @@ export type IssueUpdateWithoutOutgoingRelationsInput = {
   children?: Prisma.IssueUpdateManyWithoutParentNestedInput
   issueLabels?: Prisma.IssueLabelUpdateManyWithoutIssueNestedInput
   incomingRelations?: Prisma.IssueRelationUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueUncheckedUpdateWithoutOutgoingRelationsInput = {
@@ -1631,6 +1791,10 @@ export type IssueUncheckedUpdateWithoutOutgoingRelationsInput = {
   children?: Prisma.IssueUncheckedUpdateManyWithoutParentNestedInput
   issueLabels?: Prisma.IssueLabelUncheckedUpdateManyWithoutIssueNestedInput
   incomingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUncheckedUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUncheckedUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUncheckedUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUncheckedUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueUpsertWithoutIncomingRelationsInput = {
@@ -1667,6 +1831,10 @@ export type IssueUpdateWithoutIncomingRelationsInput = {
   children?: Prisma.IssueUpdateManyWithoutParentNestedInput
   issueLabels?: Prisma.IssueLabelUpdateManyWithoutIssueNestedInput
   outgoingRelations?: Prisma.IssueRelationUpdateManyWithoutIssueNestedInput
+  comments?: Prisma.IssueCommentUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueUncheckedUpdateWithoutIncomingRelationsInput = {
@@ -1693,6 +1861,546 @@ export type IssueUncheckedUpdateWithoutIncomingRelationsInput = {
   children?: Prisma.IssueUncheckedUpdateManyWithoutParentNestedInput
   issueLabels?: Prisma.IssueLabelUncheckedUpdateManyWithoutIssueNestedInput
   outgoingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutIssueNestedInput
+  comments?: Prisma.IssueCommentUncheckedUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUncheckedUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUncheckedUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUncheckedUpdateManyWithoutIssueNestedInput
+}
+
+export type IssueCreateWithoutCommentsInput = {
+  id: string
+  number: number
+  title: string
+  description?: string | null
+  priority?: number
+  assigneeAccountId?: string | null
+  creatorAccountId: string
+  dueDate?: Date | string | null
+  estimate?: number | null
+  sortOrder?: number
+  startedAt?: Date | string | null
+  completedAt?: Date | string | null
+  canceledAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  deletedAt?: Date | string | null
+  team: Prisma.TeamCreateNestedOneWithoutIssuesInput
+  state: Prisma.WorkflowStateCreateNestedOneWithoutIssuesInput
+  parent?: Prisma.IssueCreateNestedOneWithoutChildrenInput
+  children?: Prisma.IssueCreateNestedManyWithoutParentInput
+  issueLabels?: Prisma.IssueLabelCreateNestedManyWithoutIssueInput
+  outgoingRelations?: Prisma.IssueRelationCreateNestedManyWithoutIssueInput
+  incomingRelations?: Prisma.IssueRelationCreateNestedManyWithoutRelatedIssueInput
+  events?: Prisma.IssueEventCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemCreateNestedManyWithoutIssueInput
+}
+
+export type IssueUncheckedCreateWithoutCommentsInput = {
+  id: string
+  organizationId: string
+  teamId: string
+  number: number
+  title: string
+  description?: string | null
+  stateId: string
+  priority?: number
+  assigneeAccountId?: string | null
+  creatorAccountId: string
+  dueDate?: Date | string | null
+  estimate?: number | null
+  parentId?: string | null
+  sortOrder?: number
+  startedAt?: Date | string | null
+  completedAt?: Date | string | null
+  canceledAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  deletedAt?: Date | string | null
+  children?: Prisma.IssueUncheckedCreateNestedManyWithoutParentInput
+  issueLabels?: Prisma.IssueLabelUncheckedCreateNestedManyWithoutIssueInput
+  outgoingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutIssueInput
+  incomingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutRelatedIssueInput
+  events?: Prisma.IssueEventUncheckedCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberUncheckedCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemUncheckedCreateNestedManyWithoutIssueInput
+}
+
+export type IssueCreateOrConnectWithoutCommentsInput = {
+  where: Prisma.IssueWhereUniqueInput
+  create: Prisma.XOR<Prisma.IssueCreateWithoutCommentsInput, Prisma.IssueUncheckedCreateWithoutCommentsInput>
+}
+
+export type IssueUpsertWithoutCommentsInput = {
+  update: Prisma.XOR<Prisma.IssueUpdateWithoutCommentsInput, Prisma.IssueUncheckedUpdateWithoutCommentsInput>
+  create: Prisma.XOR<Prisma.IssueCreateWithoutCommentsInput, Prisma.IssueUncheckedCreateWithoutCommentsInput>
+  where?: Prisma.IssueWhereInput
+}
+
+export type IssueUpdateToOneWithWhereWithoutCommentsInput = {
+  where?: Prisma.IssueWhereInput
+  data: Prisma.XOR<Prisma.IssueUpdateWithoutCommentsInput, Prisma.IssueUncheckedUpdateWithoutCommentsInput>
+}
+
+export type IssueUpdateWithoutCommentsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  number?: Prisma.IntFieldUpdateOperationsInput | number
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
+  assigneeAccountId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  creatorAccountId?: Prisma.StringFieldUpdateOperationsInput | string
+  dueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  estimate?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  sortOrder?: Prisma.FloatFieldUpdateOperationsInput | number
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  canceledAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  team?: Prisma.TeamUpdateOneRequiredWithoutIssuesNestedInput
+  state?: Prisma.WorkflowStateUpdateOneRequiredWithoutIssuesNestedInput
+  parent?: Prisma.IssueUpdateOneWithoutChildrenNestedInput
+  children?: Prisma.IssueUpdateManyWithoutParentNestedInput
+  issueLabels?: Prisma.IssueLabelUpdateManyWithoutIssueNestedInput
+  outgoingRelations?: Prisma.IssueRelationUpdateManyWithoutIssueNestedInput
+  incomingRelations?: Prisma.IssueRelationUpdateManyWithoutRelatedIssueNestedInput
+  events?: Prisma.IssueEventUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUpdateManyWithoutIssueNestedInput
+}
+
+export type IssueUncheckedUpdateWithoutCommentsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
+  teamId?: Prisma.StringFieldUpdateOperationsInput | string
+  number?: Prisma.IntFieldUpdateOperationsInput | number
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  stateId?: Prisma.StringFieldUpdateOperationsInput | string
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
+  assigneeAccountId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  creatorAccountId?: Prisma.StringFieldUpdateOperationsInput | string
+  dueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  estimate?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sortOrder?: Prisma.FloatFieldUpdateOperationsInput | number
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  canceledAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  children?: Prisma.IssueUncheckedUpdateManyWithoutParentNestedInput
+  issueLabels?: Prisma.IssueLabelUncheckedUpdateManyWithoutIssueNestedInput
+  outgoingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutIssueNestedInput
+  incomingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutRelatedIssueNestedInput
+  events?: Prisma.IssueEventUncheckedUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUncheckedUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUncheckedUpdateManyWithoutIssueNestedInput
+}
+
+export type IssueCreateWithoutEventsInput = {
+  id: string
+  number: number
+  title: string
+  description?: string | null
+  priority?: number
+  assigneeAccountId?: string | null
+  creatorAccountId: string
+  dueDate?: Date | string | null
+  estimate?: number | null
+  sortOrder?: number
+  startedAt?: Date | string | null
+  completedAt?: Date | string | null
+  canceledAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  deletedAt?: Date | string | null
+  team: Prisma.TeamCreateNestedOneWithoutIssuesInput
+  state: Prisma.WorkflowStateCreateNestedOneWithoutIssuesInput
+  parent?: Prisma.IssueCreateNestedOneWithoutChildrenInput
+  children?: Prisma.IssueCreateNestedManyWithoutParentInput
+  issueLabels?: Prisma.IssueLabelCreateNestedManyWithoutIssueInput
+  outgoingRelations?: Prisma.IssueRelationCreateNestedManyWithoutIssueInput
+  incomingRelations?: Prisma.IssueRelationCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemCreateNestedManyWithoutIssueInput
+}
+
+export type IssueUncheckedCreateWithoutEventsInput = {
+  id: string
+  organizationId: string
+  teamId: string
+  number: number
+  title: string
+  description?: string | null
+  stateId: string
+  priority?: number
+  assigneeAccountId?: string | null
+  creatorAccountId: string
+  dueDate?: Date | string | null
+  estimate?: number | null
+  parentId?: string | null
+  sortOrder?: number
+  startedAt?: Date | string | null
+  completedAt?: Date | string | null
+  canceledAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  deletedAt?: Date | string | null
+  children?: Prisma.IssueUncheckedCreateNestedManyWithoutParentInput
+  issueLabels?: Prisma.IssueLabelUncheckedCreateNestedManyWithoutIssueInput
+  outgoingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutIssueInput
+  incomingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentUncheckedCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberUncheckedCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemUncheckedCreateNestedManyWithoutIssueInput
+}
+
+export type IssueCreateOrConnectWithoutEventsInput = {
+  where: Prisma.IssueWhereUniqueInput
+  create: Prisma.XOR<Prisma.IssueCreateWithoutEventsInput, Prisma.IssueUncheckedCreateWithoutEventsInput>
+}
+
+export type IssueUpsertWithoutEventsInput = {
+  update: Prisma.XOR<Prisma.IssueUpdateWithoutEventsInput, Prisma.IssueUncheckedUpdateWithoutEventsInput>
+  create: Prisma.XOR<Prisma.IssueCreateWithoutEventsInput, Prisma.IssueUncheckedCreateWithoutEventsInput>
+  where?: Prisma.IssueWhereInput
+}
+
+export type IssueUpdateToOneWithWhereWithoutEventsInput = {
+  where?: Prisma.IssueWhereInput
+  data: Prisma.XOR<Prisma.IssueUpdateWithoutEventsInput, Prisma.IssueUncheckedUpdateWithoutEventsInput>
+}
+
+export type IssueUpdateWithoutEventsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  number?: Prisma.IntFieldUpdateOperationsInput | number
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
+  assigneeAccountId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  creatorAccountId?: Prisma.StringFieldUpdateOperationsInput | string
+  dueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  estimate?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  sortOrder?: Prisma.FloatFieldUpdateOperationsInput | number
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  canceledAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  team?: Prisma.TeamUpdateOneRequiredWithoutIssuesNestedInput
+  state?: Prisma.WorkflowStateUpdateOneRequiredWithoutIssuesNestedInput
+  parent?: Prisma.IssueUpdateOneWithoutChildrenNestedInput
+  children?: Prisma.IssueUpdateManyWithoutParentNestedInput
+  issueLabels?: Prisma.IssueLabelUpdateManyWithoutIssueNestedInput
+  outgoingRelations?: Prisma.IssueRelationUpdateManyWithoutIssueNestedInput
+  incomingRelations?: Prisma.IssueRelationUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUpdateManyWithoutIssueNestedInput
+}
+
+export type IssueUncheckedUpdateWithoutEventsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
+  teamId?: Prisma.StringFieldUpdateOperationsInput | string
+  number?: Prisma.IntFieldUpdateOperationsInput | number
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  stateId?: Prisma.StringFieldUpdateOperationsInput | string
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
+  assigneeAccountId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  creatorAccountId?: Prisma.StringFieldUpdateOperationsInput | string
+  dueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  estimate?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sortOrder?: Prisma.FloatFieldUpdateOperationsInput | number
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  canceledAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  children?: Prisma.IssueUncheckedUpdateManyWithoutParentNestedInput
+  issueLabels?: Prisma.IssueLabelUncheckedUpdateManyWithoutIssueNestedInput
+  outgoingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutIssueNestedInput
+  incomingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUncheckedUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUncheckedUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUncheckedUpdateManyWithoutIssueNestedInput
+}
+
+export type IssueCreateWithoutSubscribersInput = {
+  id: string
+  number: number
+  title: string
+  description?: string | null
+  priority?: number
+  assigneeAccountId?: string | null
+  creatorAccountId: string
+  dueDate?: Date | string | null
+  estimate?: number | null
+  sortOrder?: number
+  startedAt?: Date | string | null
+  completedAt?: Date | string | null
+  canceledAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  deletedAt?: Date | string | null
+  team: Prisma.TeamCreateNestedOneWithoutIssuesInput
+  state: Prisma.WorkflowStateCreateNestedOneWithoutIssuesInput
+  parent?: Prisma.IssueCreateNestedOneWithoutChildrenInput
+  children?: Prisma.IssueCreateNestedManyWithoutParentInput
+  issueLabels?: Prisma.IssueLabelCreateNestedManyWithoutIssueInput
+  outgoingRelations?: Prisma.IssueRelationCreateNestedManyWithoutIssueInput
+  incomingRelations?: Prisma.IssueRelationCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemCreateNestedManyWithoutIssueInput
+}
+
+export type IssueUncheckedCreateWithoutSubscribersInput = {
+  id: string
+  organizationId: string
+  teamId: string
+  number: number
+  title: string
+  description?: string | null
+  stateId: string
+  priority?: number
+  assigneeAccountId?: string | null
+  creatorAccountId: string
+  dueDate?: Date | string | null
+  estimate?: number | null
+  parentId?: string | null
+  sortOrder?: number
+  startedAt?: Date | string | null
+  completedAt?: Date | string | null
+  canceledAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  deletedAt?: Date | string | null
+  children?: Prisma.IssueUncheckedCreateNestedManyWithoutParentInput
+  issueLabels?: Prisma.IssueLabelUncheckedCreateNestedManyWithoutIssueInput
+  outgoingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutIssueInput
+  incomingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentUncheckedCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventUncheckedCreateNestedManyWithoutIssueInput
+  inboxItems?: Prisma.InboxItemUncheckedCreateNestedManyWithoutIssueInput
+}
+
+export type IssueCreateOrConnectWithoutSubscribersInput = {
+  where: Prisma.IssueWhereUniqueInput
+  create: Prisma.XOR<Prisma.IssueCreateWithoutSubscribersInput, Prisma.IssueUncheckedCreateWithoutSubscribersInput>
+}
+
+export type IssueUpsertWithoutSubscribersInput = {
+  update: Prisma.XOR<Prisma.IssueUpdateWithoutSubscribersInput, Prisma.IssueUncheckedUpdateWithoutSubscribersInput>
+  create: Prisma.XOR<Prisma.IssueCreateWithoutSubscribersInput, Prisma.IssueUncheckedCreateWithoutSubscribersInput>
+  where?: Prisma.IssueWhereInput
+}
+
+export type IssueUpdateToOneWithWhereWithoutSubscribersInput = {
+  where?: Prisma.IssueWhereInput
+  data: Prisma.XOR<Prisma.IssueUpdateWithoutSubscribersInput, Prisma.IssueUncheckedUpdateWithoutSubscribersInput>
+}
+
+export type IssueUpdateWithoutSubscribersInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  number?: Prisma.IntFieldUpdateOperationsInput | number
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
+  assigneeAccountId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  creatorAccountId?: Prisma.StringFieldUpdateOperationsInput | string
+  dueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  estimate?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  sortOrder?: Prisma.FloatFieldUpdateOperationsInput | number
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  canceledAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  team?: Prisma.TeamUpdateOneRequiredWithoutIssuesNestedInput
+  state?: Prisma.WorkflowStateUpdateOneRequiredWithoutIssuesNestedInput
+  parent?: Prisma.IssueUpdateOneWithoutChildrenNestedInput
+  children?: Prisma.IssueUpdateManyWithoutParentNestedInput
+  issueLabels?: Prisma.IssueLabelUpdateManyWithoutIssueNestedInput
+  outgoingRelations?: Prisma.IssueRelationUpdateManyWithoutIssueNestedInput
+  incomingRelations?: Prisma.IssueRelationUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUpdateManyWithoutIssueNestedInput
+}
+
+export type IssueUncheckedUpdateWithoutSubscribersInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
+  teamId?: Prisma.StringFieldUpdateOperationsInput | string
+  number?: Prisma.IntFieldUpdateOperationsInput | number
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  stateId?: Prisma.StringFieldUpdateOperationsInput | string
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
+  assigneeAccountId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  creatorAccountId?: Prisma.StringFieldUpdateOperationsInput | string
+  dueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  estimate?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sortOrder?: Prisma.FloatFieldUpdateOperationsInput | number
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  canceledAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  children?: Prisma.IssueUncheckedUpdateManyWithoutParentNestedInput
+  issueLabels?: Prisma.IssueLabelUncheckedUpdateManyWithoutIssueNestedInput
+  outgoingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutIssueNestedInput
+  incomingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUncheckedUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUncheckedUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUncheckedUpdateManyWithoutIssueNestedInput
+}
+
+export type IssueCreateWithoutInboxItemsInput = {
+  id: string
+  number: number
+  title: string
+  description?: string | null
+  priority?: number
+  assigneeAccountId?: string | null
+  creatorAccountId: string
+  dueDate?: Date | string | null
+  estimate?: number | null
+  sortOrder?: number
+  startedAt?: Date | string | null
+  completedAt?: Date | string | null
+  canceledAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  deletedAt?: Date | string | null
+  team: Prisma.TeamCreateNestedOneWithoutIssuesInput
+  state: Prisma.WorkflowStateCreateNestedOneWithoutIssuesInput
+  parent?: Prisma.IssueCreateNestedOneWithoutChildrenInput
+  children?: Prisma.IssueCreateNestedManyWithoutParentInput
+  issueLabels?: Prisma.IssueLabelCreateNestedManyWithoutIssueInput
+  outgoingRelations?: Prisma.IssueRelationCreateNestedManyWithoutIssueInput
+  incomingRelations?: Prisma.IssueRelationCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberCreateNestedManyWithoutIssueInput
+}
+
+export type IssueUncheckedCreateWithoutInboxItemsInput = {
+  id: string
+  organizationId: string
+  teamId: string
+  number: number
+  title: string
+  description?: string | null
+  stateId: string
+  priority?: number
+  assigneeAccountId?: string | null
+  creatorAccountId: string
+  dueDate?: Date | string | null
+  estimate?: number | null
+  parentId?: string | null
+  sortOrder?: number
+  startedAt?: Date | string | null
+  completedAt?: Date | string | null
+  canceledAt?: Date | string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  deletedAt?: Date | string | null
+  children?: Prisma.IssueUncheckedCreateNestedManyWithoutParentInput
+  issueLabels?: Prisma.IssueLabelUncheckedCreateNestedManyWithoutIssueInput
+  outgoingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutIssueInput
+  incomingRelations?: Prisma.IssueRelationUncheckedCreateNestedManyWithoutRelatedIssueInput
+  comments?: Prisma.IssueCommentUncheckedCreateNestedManyWithoutIssueInput
+  events?: Prisma.IssueEventUncheckedCreateNestedManyWithoutIssueInput
+  subscribers?: Prisma.IssueSubscriberUncheckedCreateNestedManyWithoutIssueInput
+}
+
+export type IssueCreateOrConnectWithoutInboxItemsInput = {
+  where: Prisma.IssueWhereUniqueInput
+  create: Prisma.XOR<Prisma.IssueCreateWithoutInboxItemsInput, Prisma.IssueUncheckedCreateWithoutInboxItemsInput>
+}
+
+export type IssueUpsertWithoutInboxItemsInput = {
+  update: Prisma.XOR<Prisma.IssueUpdateWithoutInboxItemsInput, Prisma.IssueUncheckedUpdateWithoutInboxItemsInput>
+  create: Prisma.XOR<Prisma.IssueCreateWithoutInboxItemsInput, Prisma.IssueUncheckedCreateWithoutInboxItemsInput>
+  where?: Prisma.IssueWhereInput
+}
+
+export type IssueUpdateToOneWithWhereWithoutInboxItemsInput = {
+  where?: Prisma.IssueWhereInput
+  data: Prisma.XOR<Prisma.IssueUpdateWithoutInboxItemsInput, Prisma.IssueUncheckedUpdateWithoutInboxItemsInput>
+}
+
+export type IssueUpdateWithoutInboxItemsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  number?: Prisma.IntFieldUpdateOperationsInput | number
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
+  assigneeAccountId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  creatorAccountId?: Prisma.StringFieldUpdateOperationsInput | string
+  dueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  estimate?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  sortOrder?: Prisma.FloatFieldUpdateOperationsInput | number
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  canceledAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  team?: Prisma.TeamUpdateOneRequiredWithoutIssuesNestedInput
+  state?: Prisma.WorkflowStateUpdateOneRequiredWithoutIssuesNestedInput
+  parent?: Prisma.IssueUpdateOneWithoutChildrenNestedInput
+  children?: Prisma.IssueUpdateManyWithoutParentNestedInput
+  issueLabels?: Prisma.IssueLabelUpdateManyWithoutIssueNestedInput
+  outgoingRelations?: Prisma.IssueRelationUpdateManyWithoutIssueNestedInput
+  incomingRelations?: Prisma.IssueRelationUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUpdateManyWithoutIssueNestedInput
+}
+
+export type IssueUncheckedUpdateWithoutInboxItemsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  organizationId?: Prisma.StringFieldUpdateOperationsInput | string
+  teamId?: Prisma.StringFieldUpdateOperationsInput | string
+  number?: Prisma.IntFieldUpdateOperationsInput | number
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  description?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  stateId?: Prisma.StringFieldUpdateOperationsInput | string
+  priority?: Prisma.IntFieldUpdateOperationsInput | number
+  assigneeAccountId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  creatorAccountId?: Prisma.StringFieldUpdateOperationsInput | string
+  dueDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  estimate?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  parentId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  sortOrder?: Prisma.FloatFieldUpdateOperationsInput | number
+  startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  completedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  canceledAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  deletedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  children?: Prisma.IssueUncheckedUpdateManyWithoutParentNestedInput
+  issueLabels?: Prisma.IssueLabelUncheckedUpdateManyWithoutIssueNestedInput
+  outgoingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutIssueNestedInput
+  incomingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUncheckedUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUncheckedUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUncheckedUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueCreateManyTeamInput = {
@@ -1739,6 +2447,10 @@ export type IssueUpdateWithoutTeamInput = {
   issueLabels?: Prisma.IssueLabelUpdateManyWithoutIssueNestedInput
   outgoingRelations?: Prisma.IssueRelationUpdateManyWithoutIssueNestedInput
   incomingRelations?: Prisma.IssueRelationUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueUncheckedUpdateWithoutTeamInput = {
@@ -1764,6 +2476,10 @@ export type IssueUncheckedUpdateWithoutTeamInput = {
   issueLabels?: Prisma.IssueLabelUncheckedUpdateManyWithoutIssueNestedInput
   outgoingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutIssueNestedInput
   incomingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUncheckedUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUncheckedUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUncheckedUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUncheckedUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueUncheckedUpdateManyWithoutTeamInput = {
@@ -1830,6 +2546,10 @@ export type IssueUpdateWithoutStateInput = {
   issueLabels?: Prisma.IssueLabelUpdateManyWithoutIssueNestedInput
   outgoingRelations?: Prisma.IssueRelationUpdateManyWithoutIssueNestedInput
   incomingRelations?: Prisma.IssueRelationUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueUncheckedUpdateWithoutStateInput = {
@@ -1854,6 +2574,10 @@ export type IssueUncheckedUpdateWithoutStateInput = {
   issueLabels?: Prisma.IssueLabelUncheckedUpdateManyWithoutIssueNestedInput
   outgoingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutIssueNestedInput
   incomingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUncheckedUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUncheckedUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUncheckedUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUncheckedUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueUncheckedUpdateManyWithoutStateInput = {
@@ -1919,6 +2643,10 @@ export type IssueUpdateWithoutParentInput = {
   issueLabels?: Prisma.IssueLabelUpdateManyWithoutIssueNestedInput
   outgoingRelations?: Prisma.IssueRelationUpdateManyWithoutIssueNestedInput
   incomingRelations?: Prisma.IssueRelationUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueUncheckedUpdateWithoutParentInput = {
@@ -1943,6 +2671,10 @@ export type IssueUncheckedUpdateWithoutParentInput = {
   issueLabels?: Prisma.IssueLabelUncheckedUpdateManyWithoutIssueNestedInput
   outgoingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutIssueNestedInput
   incomingRelations?: Prisma.IssueRelationUncheckedUpdateManyWithoutRelatedIssueNestedInput
+  comments?: Prisma.IssueCommentUncheckedUpdateManyWithoutIssueNestedInput
+  events?: Prisma.IssueEventUncheckedUpdateManyWithoutIssueNestedInput
+  subscribers?: Prisma.IssueSubscriberUncheckedUpdateManyWithoutIssueNestedInput
+  inboxItems?: Prisma.InboxItemUncheckedUpdateManyWithoutIssueNestedInput
 }
 
 export type IssueUncheckedUpdateManyWithoutParentInput = {
@@ -1975,6 +2707,10 @@ export type IssueCountOutputType = {
   issueLabels: number
   outgoingRelations: number
   incomingRelations: number
+  comments: number
+  events: number
+  subscribers: number
+  inboxItems: number
 }
 
 export type IssueCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1982,6 +2718,10 @@ export type IssueCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.
   issueLabels?: boolean | IssueCountOutputTypeCountIssueLabelsArgs
   outgoingRelations?: boolean | IssueCountOutputTypeCountOutgoingRelationsArgs
   incomingRelations?: boolean | IssueCountOutputTypeCountIncomingRelationsArgs
+  comments?: boolean | IssueCountOutputTypeCountCommentsArgs
+  events?: boolean | IssueCountOutputTypeCountEventsArgs
+  subscribers?: boolean | IssueCountOutputTypeCountSubscribersArgs
+  inboxItems?: boolean | IssueCountOutputTypeCountInboxItemsArgs
 }
 
 /**
@@ -2022,6 +2762,34 @@ export type IssueCountOutputTypeCountIncomingRelationsArgs<ExtArgs extends runti
   where?: Prisma.IssueRelationWhereInput
 }
 
+/**
+ * IssueCountOutputType without action
+ */
+export type IssueCountOutputTypeCountCommentsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.IssueCommentWhereInput
+}
+
+/**
+ * IssueCountOutputType without action
+ */
+export type IssueCountOutputTypeCountEventsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.IssueEventWhereInput
+}
+
+/**
+ * IssueCountOutputType without action
+ */
+export type IssueCountOutputTypeCountSubscribersArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.IssueSubscriberWhereInput
+}
+
+/**
+ * IssueCountOutputType without action
+ */
+export type IssueCountOutputTypeCountInboxItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.InboxItemWhereInput
+}
+
 
 export type IssueSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -2051,6 +2819,10 @@ export type IssueSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   issueLabels?: boolean | Prisma.Issue$issueLabelsArgs<ExtArgs>
   outgoingRelations?: boolean | Prisma.Issue$outgoingRelationsArgs<ExtArgs>
   incomingRelations?: boolean | Prisma.Issue$incomingRelationsArgs<ExtArgs>
+  comments?: boolean | Prisma.Issue$commentsArgs<ExtArgs>
+  events?: boolean | Prisma.Issue$eventsArgs<ExtArgs>
+  subscribers?: boolean | Prisma.Issue$subscribersArgs<ExtArgs>
+  inboxItems?: boolean | Prisma.Issue$inboxItemsArgs<ExtArgs>
   _count?: boolean | Prisma.IssueCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["issue"]>
 
@@ -2138,6 +2910,10 @@ export type IssueInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs =
   issueLabels?: boolean | Prisma.Issue$issueLabelsArgs<ExtArgs>
   outgoingRelations?: boolean | Prisma.Issue$outgoingRelationsArgs<ExtArgs>
   incomingRelations?: boolean | Prisma.Issue$incomingRelationsArgs<ExtArgs>
+  comments?: boolean | Prisma.Issue$commentsArgs<ExtArgs>
+  events?: boolean | Prisma.Issue$eventsArgs<ExtArgs>
+  subscribers?: boolean | Prisma.Issue$subscribersArgs<ExtArgs>
+  inboxItems?: boolean | Prisma.Issue$inboxItemsArgs<ExtArgs>
   _count?: boolean | Prisma.IssueCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type IssueIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -2161,6 +2937,10 @@ export type $IssuePayload<ExtArgs extends runtime.Types.Extensions.InternalArgs 
     issueLabels: Prisma.$IssueLabelPayload<ExtArgs>[]
     outgoingRelations: Prisma.$IssueRelationPayload<ExtArgs>[]
     incomingRelations: Prisma.$IssueRelationPayload<ExtArgs>[]
+    comments: Prisma.$IssueCommentPayload<ExtArgs>[]
+    events: Prisma.$IssueEventPayload<ExtArgs>[]
+    subscribers: Prisma.$IssueSubscriberPayload<ExtArgs>[]
+    inboxItems: Prisma.$InboxItemPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -2587,6 +3367,10 @@ export interface Prisma__IssueClient<T, Null = never, ExtArgs extends runtime.Ty
   issueLabels<T extends Prisma.Issue$issueLabelsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Issue$issueLabelsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$IssueLabelPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   outgoingRelations<T extends Prisma.Issue$outgoingRelationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Issue$outgoingRelationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$IssueRelationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   incomingRelations<T extends Prisma.Issue$incomingRelationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Issue$incomingRelationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$IssueRelationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  comments<T extends Prisma.Issue$commentsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Issue$commentsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$IssueCommentPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  events<T extends Prisma.Issue$eventsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Issue$eventsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$IssueEventPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  subscribers<T extends Prisma.Issue$subscribersArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Issue$subscribersArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$IssueSubscriberPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  inboxItems<T extends Prisma.Issue$inboxItemsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Issue$inboxItemsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$InboxItemPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -3149,6 +3933,102 @@ export type Issue$incomingRelationsArgs<ExtArgs extends runtime.Types.Extensions
   take?: number
   skip?: number
   distinct?: Prisma.IssueRelationScalarFieldEnum | Prisma.IssueRelationScalarFieldEnum[]
+}
+
+/**
+ * Issue.comments
+ */
+export type Issue$commentsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the IssueComment
+   */
+  select?: Prisma.IssueCommentSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the IssueComment
+   */
+  omit?: Prisma.IssueCommentOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IssueCommentInclude<ExtArgs> | null
+  where?: Prisma.IssueCommentWhereInput
+  orderBy?: Prisma.IssueCommentOrderByWithRelationInput | Prisma.IssueCommentOrderByWithRelationInput[]
+  cursor?: Prisma.IssueCommentWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.IssueCommentScalarFieldEnum | Prisma.IssueCommentScalarFieldEnum[]
+}
+
+/**
+ * Issue.events
+ */
+export type Issue$eventsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the IssueEvent
+   */
+  select?: Prisma.IssueEventSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the IssueEvent
+   */
+  omit?: Prisma.IssueEventOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IssueEventInclude<ExtArgs> | null
+  where?: Prisma.IssueEventWhereInput
+  orderBy?: Prisma.IssueEventOrderByWithRelationInput | Prisma.IssueEventOrderByWithRelationInput[]
+  cursor?: Prisma.IssueEventWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.IssueEventScalarFieldEnum | Prisma.IssueEventScalarFieldEnum[]
+}
+
+/**
+ * Issue.subscribers
+ */
+export type Issue$subscribersArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the IssueSubscriber
+   */
+  select?: Prisma.IssueSubscriberSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the IssueSubscriber
+   */
+  omit?: Prisma.IssueSubscriberOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.IssueSubscriberInclude<ExtArgs> | null
+  where?: Prisma.IssueSubscriberWhereInput
+  orderBy?: Prisma.IssueSubscriberOrderByWithRelationInput | Prisma.IssueSubscriberOrderByWithRelationInput[]
+  cursor?: Prisma.IssueSubscriberWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.IssueSubscriberScalarFieldEnum | Prisma.IssueSubscriberScalarFieldEnum[]
+}
+
+/**
+ * Issue.inboxItems
+ */
+export type Issue$inboxItemsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the InboxItem
+   */
+  select?: Prisma.InboxItemSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the InboxItem
+   */
+  omit?: Prisma.InboxItemOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.InboxItemInclude<ExtArgs> | null
+  where?: Prisma.InboxItemWhereInput
+  orderBy?: Prisma.InboxItemOrderByWithRelationInput | Prisma.InboxItemOrderByWithRelationInput[]
+  cursor?: Prisma.InboxItemWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.InboxItemScalarFieldEnum | Prisma.InboxItemScalarFieldEnum[]
 }
 
 /**

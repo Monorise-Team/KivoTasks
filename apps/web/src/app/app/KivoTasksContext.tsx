@@ -20,6 +20,7 @@ export interface KivoTasksContextValue {
   readonly currentTeamKey: string | null;
   readonly capabilityOverrides: TeamCapabilityOverrides;
   readonly issuesRevision: number;
+  readonly inboxUnreadCount: number;
   readonly busy: boolean;
   readonly canRead: boolean;
   readonly canWriteTeam: (teamId?: string | null) => boolean;
@@ -33,6 +34,8 @@ export interface KivoTasksContextValue {
   readonly setActiveIssueTeamKey: (teamKey: string | null) => void;
   readonly registerSearchFocus: (focusFn: (() => void) | null) => void;
   readonly bumpIssuesRevision: () => void;
+  readonly refreshInboxUnreadCount: () => Promise<void>;
+  readonly setInboxUnreadCount: (next: number | ((prev: number) => number)) => void;
   readonly refreshSession: () => Promise<void>;
   readonly signOut: () => Promise<void>;
 }

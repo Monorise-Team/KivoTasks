@@ -2,12 +2,21 @@ import "server-only";
 import {
   DEFAULT_WORKFLOW_STATES,
   type ColorToken,
+  type CommentReactionsResult,
+  type InboxItem,
+  type InboxItemKind,
+  type IssueActivityItem,
+  type IssueComment,
   type IssueDetail,
+  type IssueEvent,
+  type IssueEventPayload,
+  type IssueEventType,
   type IssueListItem,
   type IssueReference,
   type IssueRelationView,
   type IssueSort,
   type IssueStateSummary,
+  type IssueSubscription,
   type Label,
   type PaginatedResult,
   type Team,
@@ -18,6 +27,17 @@ import {
 } from "@kivotasks/contracts";
 import { Prisma, uuidv7, withUser, type Tx } from "@kivotasks/db";
 import { ApiFailure } from "./api";
+import {
+  aggregateCommentReactions,
+  buildCommentExcerpt,
+  buildIssueUpdateEvents,
+  computeAssignmentInboxRecipients,
+  computeCommentEditMentionRecipients,
+  computeCommentInboxFanout,
+  encodeActivityCursor,
+  encodeTimeIdCursor,
+  redactIssueEvent,
+} from "./collaboration-helpers";
 import { getDb } from "./db";
 import {
   buildIssueCursorPayload,
@@ -31,14 +51,20 @@ import {
   type IssueCursorPayload,
 } from "./issue-helpers";
 import type {
+  CommentLocation,
   CreateIssueStoreInput,
   IssueLocation,
   IssueLookup,
   IssueRelationRecordInfo,
   IssuesStore,
+  ListInboxStoreParams,
+  ListIssueActivityStoreParams,
+  ListIssueCommentsStoreParams,
   ListIssuesStoreParams,
   SearchIssuesStoreParams,
+  UpdateInboxItemStoreParams,
   UpdateIssueStoreInput,
+  UpdateIssueStoreResult,
 } from "./issues-store";
 import type { TeamFilterScope } from "./permissions";
 
@@ -210,6 +236,7 @@ async function hydrateIssueDetail(
   tx: Tx,
   issueId: string,
   readableTeamIds: TeamFilterScope,
+  viewerAccountId: string,
 ): Promise<IssueDetail | null> {
   const row = await tx.issue.findFirst({
     where: { id: issueId, deletedAt: null, team: { archivedAt: null } },
@@ -252,6 +279,13 @@ async function hydrateIssueDetail(
 
   relations.sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id.localeCompare(b.id)));
 
+  const subRows = await tx.$queryRaw<{ exists: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM "public"."issue_subscribers"
+      WHERE "issue_id" = ${row.id}::uuid AND "account_id" = ${viewerAccountId}::uuid
+    ) AS "exists"
+  `;
+
   const base = serializeIssueListItem(row);
   return {
     ...base,
@@ -259,6 +293,7 @@ async function hydrateIssueDetail(
     parent: row.parent && row.parent.deletedAt === null ? serializeIssueReference(row.parent) : null,
     children: row.children.map((child) => serializeIssueReference(child)),
     relations,
+    isSubscribed: subRows[0]?.exists === true,
   };
 }
 
@@ -348,7 +383,7 @@ async function lockTeamIssueHierarchy(tx: Tx, teamId: string): Promise<void> {
  * FOR SHARE, a archiwizacja bierze FOR UPDATE i dopiero potem liczy zadania. Klucz obcy bierze tylko
  * FOR KEY SHARE, które nie koliduje ze zmianą `archived_at`, więc sam nie wystarcza.
  */
-type LockedState = { id: string; category: WorkflowStateCategory };
+type LockedState = { id: string; name: string; category: WorkflowStateCategory };
 
 async function lockActiveState(
   tx: Tx,
@@ -358,7 +393,7 @@ async function lockActiveState(
 ): Promise<LockedState | null> {
   const lock = mode === "SHARE" ? Prisma.sql`FOR SHARE` : Prisma.sql`FOR UPDATE`;
   const rows = await tx.$queryRaw<LockedState[]>`
-    SELECT "id"::text AS "id", "category"::text AS "category"
+    SELECT "id"::text AS "id", "name", "category"::text AS "category"
     FROM "public"."workflow_states"
     WHERE "id" = ${stateId}::uuid AND "team_id" = ${teamId}::uuid AND "archived_at" IS NULL
     ${lock}
@@ -371,7 +406,7 @@ async function lockDefaultState(tx: Tx, teamId: string): Promise<LockedState | n
   // Gdy wybrany wiersz zarchiwizowano w trakcie czekania na blokadę, zapytanie zwraca pusto: próbujemy raz jeszcze
   for (let attempt = 0; attempt < 2; attempt++) {
     const rows = await tx.$queryRaw<LockedState[]>`
-      SELECT "id"::text AS "id", "category"::text AS "category"
+      SELECT "id"::text AS "id", "name", "category"::text AS "category"
       FROM "public"."workflow_states"
       WHERE "team_id" = ${teamId}::uuid
         AND "archived_at" IS NULL
@@ -386,16 +421,20 @@ async function lockDefaultState(tx: Tx, teamId: string): Promise<LockedState | n
   return null;
 }
 
-/** Blokuje FOR SHARE aktywne etykiety zespołu i zwraca, ile z podanych istnieje. */
-async function lockActiveLabels(tx: Tx, teamId: string, labelIds: readonly string[]): Promise<number> {
-  if (labelIds.length === 0) return 0;
-  const rows = await tx.$queryRaw<{ id: string }[]>`
-    SELECT "id"::text AS "id"
+/** Blokuje FOR SHARE aktywne etykiety zespołu i zwraca ich listę (`id`, `name`). */
+async function lockActiveLabels(
+  tx: Tx,
+  teamId: string,
+  labelIds: readonly string[],
+): Promise<{ id: string; name: string }[]> {
+  if (labelIds.length === 0) return [];
+  return tx.$queryRaw<{ id: string; name: string }[]>`
+    SELECT "id"::text AS "id", "name"
     FROM "public"."labels"
     WHERE "id" = ANY(${[...labelIds]}::uuid[]) AND "team_id" = ${teamId}::uuid AND "archived_at" IS NULL
+    ORDER BY "name" ASC, "id" ASC
     FOR SHARE
   `;
-  return rows.length;
 }
 
 /** Blokuje FOR SHARE aktywne zadanie w aktywnym zespole; `null`, gdy go nie ma albo usunięto je w międzyczasie. */
@@ -408,6 +447,334 @@ async function lockActiveIssue(tx: Tx, issueId: string): Promise<{ id: string; t
     FOR SHARE OF i
   `;
   return rows[0] ?? null;
+}
+
+// ── Wspólne pomocniki zapisu historii, obserwujących, komentarzy i skrzynki ─
+
+interface PendingIssueEventRow {
+  organizationId: string;
+  teamId: string;
+  issueId: string;
+  actorAccountId: string;
+  type: IssueEventType;
+  before: IssueEventPayload;
+  after: IssueEventPayload;
+  createdAt: Date;
+}
+
+async function insertIssueEvents(tx: Tx, events: readonly PendingIssueEventRow[]): Promise<void> {
+  if (events.length === 0) return;
+
+  const ids: string[] = [];
+  const orgIds: string[] = [];
+  const teamIds: string[] = [];
+  const issueIds: string[] = [];
+  const actorIds: string[] = [];
+  const types: string[] = [];
+  const befores: (string | null)[] = [];
+  const afters: (string | null)[] = [];
+  const createdAts: string[] = [];
+
+  for (const event of events) {
+    ids.push(uuidv7(event.createdAt.getTime()));
+    orgIds.push(event.organizationId);
+    teamIds.push(event.teamId);
+    issueIds.push(event.issueId);
+    actorIds.push(event.actorAccountId);
+    types.push(event.type);
+    befores.push(event.before === null ? null : JSON.stringify(event.before));
+    afters.push(event.after === null ? null : JSON.stringify(event.after));
+    createdAts.push(event.createdAt.toISOString());
+  }
+
+  await tx.$executeRaw`
+    INSERT INTO "public"."issue_events"
+      ("id", "organization_id", "team_id", "issue_id", "actor_account_id", "type", "before", "after", "created_at")
+    SELECT u."id", u."organization_id", u."team_id", u."issue_id", u."actor_account_id",
+           u."type"::"public"."IssueEventType", u."before"::jsonb, u."after"::jsonb, u."created_at"
+    FROM unnest(
+      ${ids}::uuid[],
+      ${orgIds}::uuid[],
+      ${teamIds}::uuid[],
+      ${issueIds}::uuid[],
+      ${actorIds}::uuid[],
+      ${types}::text[],
+      ${befores}::text[],
+      ${afters}::text[],
+      ${createdAts}::timestamptz(3)[]
+    ) AS u(
+      "id", "organization_id", "team_id", "issue_id", "actor_account_id",
+      "type", "before", "after", "created_at"
+    )
+  `;
+}
+
+async function ensureIssueSubscribers(
+  tx: Tx,
+  params: { organizationId: string; issueId: string; accountIds: readonly string[]; createdAt: Date },
+): Promise<void> {
+  const unique = [...new Set(params.accountIds)];
+  if (unique.length === 0) return;
+  await tx.$executeRaw`
+    INSERT INTO "public"."issue_subscribers" ("issue_id", "account_id", "organization_id", "created_at")
+    SELECT ${params.issueId}::uuid, u."account_id", ${params.organizationId}::uuid, ${params.createdAt}
+    FROM unnest(${unique}::uuid[]) AS u("account_id")
+    ON CONFLICT ("issue_id", "account_id") DO NOTHING
+  `;
+}
+
+async function insertCommentMentions(
+  tx: Tx,
+  params: { organizationId: string; commentId: string; accountIds: readonly string[]; createdAt: Date },
+): Promise<void> {
+  const unique = [...new Set(params.accountIds)];
+  if (unique.length === 0) return;
+  await tx.$executeRaw`
+    INSERT INTO "public"."comment_mentions" ("comment_id", "account_id", "organization_id", "created_at")
+    SELECT ${params.commentId}::uuid, u."account_id", ${params.organizationId}::uuid, ${params.createdAt}
+    FROM unnest(${unique}::uuid[]) AS u("account_id")
+    ON CONFLICT ("comment_id", "account_id") DO NOTHING
+  `;
+}
+
+async function insertInboxItems(
+  tx: Tx,
+  items: readonly {
+    organizationId: string;
+    recipientAccountId: string;
+    kind: InboxItemKind;
+    issueId: string;
+    actorAccountId: string;
+    commentId: string | null;
+    createdAt: Date;
+  }[],
+): Promise<void> {
+  const filtered = items.filter((item) => item.recipientAccountId.toLowerCase() !== item.actorAccountId.toLowerCase());
+  if (filtered.length === 0) return;
+
+  const ids: string[] = [];
+  const orgIds: string[] = [];
+  const recipientIds: string[] = [];
+  const kinds: string[] = [];
+  const issueIds: string[] = [];
+  const actorIds: string[] = [];
+  const commentIds: (string | null)[] = [];
+  const createdAts: string[] = [];
+
+  for (const item of filtered) {
+    ids.push(uuidv7(item.createdAt.getTime()));
+    orgIds.push(item.organizationId);
+    recipientIds.push(item.recipientAccountId);
+    kinds.push(item.kind);
+    issueIds.push(item.issueId);
+    actorIds.push(item.actorAccountId);
+    commentIds.push(item.commentId);
+    createdAts.push(item.createdAt.toISOString());
+  }
+
+  await tx.$executeRaw`
+    INSERT INTO "public"."inbox_items"
+      ("id", "organization_id", "recipient_account_id", "kind", "issue_id", "actor_account_id", "comment_id", "created_at")
+    SELECT u."id", u."organization_id", u."recipient_account_id", u."kind"::"public"."InboxItemKind",
+           u."issue_id", u."actor_account_id", u."comment_id", u."created_at"
+    FROM unnest(
+      ${ids}::uuid[],
+      ${orgIds}::uuid[],
+      ${recipientIds}::uuid[],
+      ${kinds}::text[],
+      ${issueIds}::uuid[],
+      ${actorIds}::uuid[],
+      ${commentIds}::uuid[],
+      ${createdAts}::timestamptz(3)[]
+    ) AS u(
+      "id", "organization_id", "recipient_account_id", "kind",
+      "issue_id", "actor_account_id", "comment_id", "created_at"
+    )
+  `;
+}
+
+interface RawCommentRow {
+  id: string;
+  organizationId: string;
+  teamId: string;
+  issueId: string;
+  authorAccountId: string;
+  body: string;
+  createdAt: Date;
+  updatedAt: Date;
+  editedAt: Date | null;
+  deletedAt: Date | null;
+}
+
+interface RawEventRow {
+  id: string;
+  organizationId: string;
+  teamId: string;
+  issueId: string;
+  actorAccountId: string;
+  type: IssueEventType;
+  before: IssueEventPayload;
+  after: IssueEventPayload;
+  createdAt: Date;
+}
+
+interface RawInboxRow {
+  id: string;
+  organizationId: string;
+  recipientAccountId: string;
+  kind: InboxItemKind;
+  issueId: string;
+  actorAccountId: string;
+  commentId: string | null;
+  commentBody: string | null;
+  commentDeletedAt: Date | null;
+  createdAt: Date;
+  readAt: Date | null;
+  archivedAt: Date | null;
+  issueTeamId: string;
+  issueNumber: number;
+  issueTitle: string;
+  teamKey: string;
+  stateId: string;
+  stateName: string;
+  stateCategory: WorkflowStateCategory;
+  stateColor: string;
+  statePosition: number;
+}
+
+async function hydrateComments(
+  tx: Tx,
+  rows: readonly RawCommentRow[],
+  viewerAccountId: string,
+): Promise<IssueComment[]> {
+  if (rows.length === 0) return [];
+  const activeIds = rows.filter((row) => row.deletedAt === null).map((row) => row.id);
+
+  const mentionsByComment = new Map<string, string[]>();
+  const reactionsByComment = new Map<string, { emoji: string; accountId: string }[]>();
+
+  if (activeIds.length > 0) {
+    const [mentionRows, reactionRows] = await Promise.all([
+      tx.$queryRaw<{ commentId: string; accountId: string }[]>`
+        SELECT "comment_id"::text AS "commentId", "account_id"::text AS "accountId"
+        FROM "public"."comment_mentions"
+        WHERE "comment_id" = ANY(${activeIds}::uuid[])
+        ORDER BY "created_at" ASC, "account_id" ASC
+      `,
+      tx.$queryRaw<{ commentId: string; accountId: string; emoji: string }[]>`
+        SELECT "comment_id"::text AS "commentId", "account_id"::text AS "accountId", "emoji"
+        FROM "public"."comment_reactions"
+        WHERE "comment_id" = ANY(${activeIds}::uuid[])
+      `,
+    ]);
+
+    for (const row of mentionRows) {
+      const list = mentionsByComment.get(row.commentId);
+      if (list) list.push(row.accountId);
+      else mentionsByComment.set(row.commentId, [row.accountId]);
+    }
+    for (const row of reactionRows) {
+      const list = reactionsByComment.get(row.commentId);
+      if (list) list.push({ emoji: row.emoji, accountId: row.accountId });
+      else reactionsByComment.set(row.commentId, [{ emoji: row.emoji, accountId: row.accountId }]);
+    }
+  }
+
+  return rows.map((row) => {
+    const deleted = row.deletedAt !== null;
+    return {
+      id: row.id,
+      organizationId: row.organizationId,
+      teamId: row.teamId,
+      issueId: row.issueId,
+      authorAccountId: row.authorAccountId,
+      authorName: null,
+      body: deleted ? null : row.body,
+      deleted,
+      mentionedAccountIds: deleted ? [] : (mentionsByComment.get(row.id) ?? []),
+      reactions: deleted ? [] : aggregateCommentReactions(reactionsByComment.get(row.id) ?? [], viewerAccountId),
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+      editedAt: row.editedAt ? row.editedAt.toISOString() : null,
+      deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
+    };
+  });
+}
+
+function serializeIssueEvent(row: RawEventRow): IssueEvent {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    teamId: row.teamId,
+    issueId: row.issueId,
+    actorAccountId: row.actorAccountId,
+    actorName: null,
+    type: row.type,
+    before: row.before ?? null,
+    after: row.after ?? null,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+async function hydrateInboxRows(tx: Tx, rows: readonly RawInboxRow[]): Promise<InboxItem[]> {
+  if (rows.length === 0) return [];
+
+  const activeCommentIds = [
+    ...new Set(
+      rows
+        .filter((row) => row.commentId !== null && row.commentDeletedAt === null)
+        .map((row) => row.commentId as string),
+    ),
+  ];
+
+  const mentionsByComment = new Map<string, string[]>();
+  if (activeCommentIds.length > 0) {
+    const mentionRows = await tx.$queryRaw<{ commentId: string; accountId: string }[]>`
+      SELECT "comment_id"::text AS "commentId", "account_id"::text AS "accountId"
+      FROM "public"."comment_mentions"
+      WHERE "comment_id" = ANY(${activeCommentIds}::uuid[])
+    `;
+    for (const row of mentionRows) {
+      const list = mentionsByComment.get(row.commentId);
+      if (list) list.push(row.accountId);
+      else mentionsByComment.set(row.commentId, [row.accountId]);
+    }
+  }
+
+  return rows.map((row) => {
+    const excerpt =
+      row.commentId && row.commentDeletedAt === null
+        ? buildCommentExcerpt(row.commentBody, mentionsByComment.get(row.commentId) ?? [])
+        : null;
+    return {
+      id: row.id,
+      organizationId: row.organizationId,
+      recipientAccountId: row.recipientAccountId,
+      kind: row.kind,
+      issueId: row.issueId,
+      issue: {
+        id: row.issueId,
+        teamId: row.issueTeamId,
+        identifier: formatIssueIdentifier(row.teamKey, row.issueNumber),
+        number: row.issueNumber,
+        title: row.issueTitle,
+        state: {
+          id: row.stateId,
+          name: row.stateName,
+          category: row.stateCategory,
+          color: row.stateColor as ColorToken,
+          position: row.statePosition,
+        },
+      },
+      actorAccountId: row.actorAccountId,
+      actorName: null,
+      commentId: row.commentId,
+      commentExcerpt: excerpt,
+      createdAt: row.createdAt.toISOString(),
+      readAt: row.readAt ? row.readAt.toISOString() : null,
+      archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
+    };
+  });
 }
 
 const LABELS_OUTSIDE_TEAM = new ApiFailure(422, "VALIDATION_FAILED", "Niepoprawne dane", [
@@ -867,7 +1234,8 @@ export const prismaIssuesStore: IssuesStore = {
 
       // 2. Sprawdź etykiety (muszą należeć do tego samego zespołu) i zablokuj je przed archiwizacją
       const uniqueLabelIds = [...new Set(input.labelIds)];
-      if ((await lockActiveLabels(tx, input.teamId, uniqueLabelIds)) !== uniqueLabelIds.length) {
+      const lockedLabels = await lockActiveLabels(tx, input.teamId, uniqueLabelIds);
+      if (lockedLabels.length !== uniqueLabelIds.length) {
         throw LABELS_OUTSIDE_TEAM;
       }
 
@@ -887,18 +1255,19 @@ export const prismaIssuesStore: IssuesStore = {
       }
 
       // 4. Atomowe przydzielenie numeru w tej samej transakcji
-      const allocated = await tx.$queryRaw<{ number: number }[]>`
+      const allocated = await tx.$queryRaw<{ number: number; key: string }[]>`
         UPDATE "public"."teams"
         SET "next_issue_number" = "next_issue_number" + 1,
             "updated_at" = CURRENT_TIMESTAMP
         WHERE "id" = ${input.teamId}::uuid
           AND "archived_at" IS NULL
-        RETURNING ("next_issue_number" - 1) AS "number"
+        RETURNING ("next_issue_number" - 1) AS "number", "key"
       `;
       if (allocated.length === 0) {
         throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono zespołu");
       }
       const number = allocated[0]!.number;
+      const teamKey = allocated[0]!.key;
 
       const now = new Date();
       const timestamps = computeStateTimestamps(
@@ -941,7 +1310,57 @@ export const prismaIssuesStore: IssuesStore = {
         });
       }
 
-      const detail = await hydrateIssueDetail(tx, id, "ALL");
+      // 5. Historia, automatyczni obserwujący oraz powiadomienie o przypisaniu w tej samej transakcji
+      await insertIssueEvents(tx, [
+        {
+          organizationId: actor.organizationId,
+          teamId: input.teamId,
+          issueId: id,
+          actorAccountId: actor.accountId,
+          type: "CREATED",
+          before: null,
+          after: {
+            identifier: formatIssueIdentifier(teamKey, number),
+            title: input.title,
+            stateId: state.id,
+            stateName: state.name,
+            priority: input.priority,
+            assigneeAccountId: input.assigneeAccountId,
+          },
+          createdAt: now,
+        },
+      ]);
+
+      await ensureIssueSubscribers(tx, {
+        organizationId: actor.organizationId,
+        issueId: id,
+        accountIds: input.assigneeAccountId
+          ? [input.creatorAccountId, input.assigneeAccountId]
+          : [input.creatorAccountId],
+        createdAt: now,
+      });
+
+      const assignedRecipients = computeAssignmentInboxRecipients({
+        previousAssigneeAccountId: null,
+        nextAssigneeAccountId: input.assigneeAccountId,
+        actorAccountId: actor.accountId,
+      });
+      if (assignedRecipients.length > 0) {
+        await insertInboxItems(
+          tx,
+          assignedRecipients.map((recipientAccountId) => ({
+            organizationId: actor.organizationId,
+            recipientAccountId,
+            kind: "ASSIGNED",
+            issueId: id,
+            actorAccountId: actor.accountId,
+            commentId: null,
+            createdAt: now,
+          })),
+        );
+      }
+
+      const detail = await hydrateIssueDetail(tx, id, "ALL", actor.accountId);
       if (!detail) {
         throw new ApiFailure(500, "INTERNAL_ERROR", "Nie udało się odczytać utworzonego zadania");
       }
@@ -980,7 +1399,7 @@ export const prismaIssuesStore: IssuesStore = {
         if (!found || found.deletedAt !== null) return null;
         targetId = found.id;
       }
-      return hydrateIssueDetail(tx, targetId, readableTeamIds);
+      return hydrateIssueDetail(tx, targetId, readableTeamIds, actor.accountId);
     });
   },
 
@@ -989,18 +1408,48 @@ export const prismaIssuesStore: IssuesStore = {
     issueId,
     input: UpdateIssueStoreInput,
     readableTeamIds: TeamFilterScope,
-  ): Promise<IssueDetail | null> {
+  ): Promise<UpdateIssueStoreResult | null> {
     return withUser(getDb(), actor, async (tx) => {
+      // Przy zmianie rodzica najpierw bierzemy blokadę hierarchii zespołu (ta sama kolejność co w softDeleteIssue),
+      // aby uniknąć zakleszczenia między blokadą doradczą a blokadą wiersza FOR UPDATE.
+      if (input.parentId !== undefined && input.parentId !== null) {
+        const pre = await tx.$queryRaw<{ teamId: string }[]>`
+          SELECT i."team_id"::text AS "teamId"
+          FROM "public"."issues" i
+          JOIN "public"."teams" t ON t."id" = i."team_id"
+          WHERE i."id" = ${issueId}::uuid AND i."deleted_at" IS NULL AND t."archived_at" IS NULL
+        `;
+        if (pre.length === 0) return null;
+        await lockTeamIssueHierarchy(tx, pre[0]!.teamId);
+      }
+
+      // Blokada wiersza FOR UPDATE serializuje równoległe aktualizacje i miękkie usunięcie tego samego zadania;
+      // różnicę historii, zmiany etykiet oraz fan-out ASSIGNED liczymy wyłącznie z zablokowanego wiersza.
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT i."id"::text AS "id"
+        FROM "public"."issues" i
+        JOIN "public"."teams" t ON t."id" = i."team_id"
+        WHERE i."id" = ${issueId}::uuid AND i."deleted_at" IS NULL AND t."archived_at" IS NULL
+        FOR UPDATE OF i
+      `;
+      if (locked.length === 0) return null;
+
       const existing = await tx.issue.findFirst({
         where: { id: issueId, deletedAt: null, team: { archivedAt: null } },
-        include: { state: { select: { category: true } } },
+        include: {
+          state: { select: { id: true, name: true, category: true } },
+          parent: { select: { id: true, number: true, deletedAt: true, team: { select: { key: true } } } },
+          issueLabels: {
+            where: { label: { archivedAt: null } },
+            include: { label: { select: { id: true, name: true } } },
+            orderBy: { label: { name: "asc" } },
+          },
+        },
       });
       if (!existing) return null;
 
-      if (input.parentId !== undefined && input.parentId !== null) {
-        await lockTeamIssueHierarchy(tx, existing.teamId);
-      }
-
+      const now = new Date();
+      let nextStateSnapshot = { id: existing.state.id, name: existing.state.name };
       let nextTimestamps: { startedAt: Date | null; completedAt: Date | null; canceledAt: Date | null } | undefined;
       if (input.stateId !== undefined && input.stateId !== existing.stateId) {
         const targetState = await lockActiveState(tx, existing.teamId, input.stateId, "SHARE");
@@ -1009,6 +1458,7 @@ export const prismaIssuesStore: IssuesStore = {
             { field: "stateId", message: "Wybrany status nie należy do tego zespołu" },
           ]);
         }
+        nextStateSnapshot = { id: targetState.id, name: targetState.name };
         if (targetState.category !== existing.state.category) {
           nextTimestamps = computeStateTimestamps(
             targetState.category,
@@ -1017,43 +1467,68 @@ export const prismaIssuesStore: IssuesStore = {
               completedAt: existing.completedAt,
               canceledAt: existing.canceledAt,
             },
-            new Date(),
+            now,
           );
         }
       }
 
-      if (input.parentId !== undefined && input.parentId !== null) {
-        if (input.parentId === issueId) {
-          throw new ApiFailure(422, "VALIDATION_FAILED", "Niepoprawne dane", [
-            { field: "parentId", message: "Zadanie nie może być swoim własnym zadaniem nadrzędnym" },
-          ]);
-        }
-        const parent = await tx.issue.findFirst({
-          where: { id: input.parentId, teamId: existing.teamId, deletedAt: null },
-          select: { id: true },
-        });
-        if (!parent) {
-          throw new ApiFailure(422, "VALIDATION_FAILED", "Niepoprawne dane", [
-            { field: "parentId", message: "Zadanie nadrzędne musi istnieć w tym samym zespole" },
-          ]);
-        }
-        const createsCycle = await wouldCreateParentCycle(issueId, input.parentId, async (id) => {
-          const row = await tx.issue.findFirst({
-            where: { id, teamId: existing.teamId, deletedAt: null },
-            select: { parentId: true },
+      const existingParentSnapshot =
+        existing.parent && existing.parent.deletedAt === null
+          ? {
+              id: existing.parent.id,
+              identifier: formatIssueIdentifier(existing.parent.team.key, existing.parent.number),
+            }
+          : null;
+      let nextParentSnapshot = existingParentSnapshot;
+
+      if (input.parentId !== undefined) {
+        if (input.parentId === null) {
+          nextParentSnapshot = null;
+        } else {
+          if (input.parentId === issueId) {
+            throw new ApiFailure(422, "VALIDATION_FAILED", "Niepoprawne dane", [
+              { field: "parentId", message: "Zadanie nie może być swoim własnym zadaniem nadrzędnym" },
+            ]);
+          }
+          const parent = await tx.issue.findFirst({
+            where: { id: input.parentId, teamId: existing.teamId, deletedAt: null },
+            select: { id: true, number: true, team: { select: { key: true } } },
           });
-          return row?.parentId ?? null;
-        });
-        if (createsCycle) {
-          throw new ApiFailure(409, "CONFLICT", "Wybrane zadanie nadrzędne tworzy cykl w hierarchii zadań");
+          if (!parent) {
+            throw new ApiFailure(422, "VALIDATION_FAILED", "Niepoprawne dane", [
+              { field: "parentId", message: "Zadanie nadrzędne musi istnieć w tym samym zespole" },
+            ]);
+          }
+          const createsCycle = await wouldCreateParentCycle(issueId, input.parentId, async (id) => {
+            const row = await tx.issue.findFirst({
+              where: { id, teamId: existing.teamId, deletedAt: null },
+              select: { parentId: true },
+            });
+            return row?.parentId ?? null;
+          });
+          if (createsCycle) {
+            throw new ApiFailure(409, "CONFLICT", "Wybrane zadanie nadrzędne tworzy cykl w hierarchii zadań");
+          }
+          nextParentSnapshot = {
+            id: parent.id,
+            identifier: formatIssueIdentifier(parent.team.key, parent.number),
+          };
         }
       }
 
+      const existingLabelsSnapshot = existing.issueLabels.map((item) => ({
+        id: item.label.id,
+        name: item.label.name,
+      }));
+      let nextLabelsSnapshot = existingLabelsSnapshot;
+
       if (input.labelIds !== undefined) {
         const uniqueLabelIds = [...new Set(input.labelIds)];
-        if ((await lockActiveLabels(tx, existing.teamId, uniqueLabelIds)) !== uniqueLabelIds.length) {
+        const lockedLabels = await lockActiveLabels(tx, existing.teamId, uniqueLabelIds);
+        if (lockedLabels.length !== uniqueLabelIds.length) {
           throw LABELS_OUTSIDE_TEAM;
         }
+        nextLabelsSnapshot = lockedLabels;
         await tx.issueLabel.deleteMany({ where: { issueId } });
         if (uniqueLabelIds.length > 0) {
           await tx.issueLabel.createMany({
@@ -1063,9 +1538,13 @@ export const prismaIssuesStore: IssuesStore = {
               organizationId: actor.organizationId,
               teamId: existing.teamId,
             })),
+            skipDuplicates: true,
           });
         }
       }
+
+      const existingDueDate = formatDateOnly(existing.dueDate);
+      const nextDueDate = input.dueDate !== undefined ? input.dueDate : existingDueDate;
 
       await tx.issue.update({
         where: { id: issueId },
@@ -1089,7 +1568,78 @@ export const prismaIssuesStore: IssuesStore = {
         },
       });
 
-      return hydrateIssueDetail(tx, issueId, readableTeamIds);
+      const pendingEvents = buildIssueUpdateEvents(
+        {
+          title: existing.title,
+          description: existing.description,
+          state: { id: existing.state.id, name: existing.state.name },
+          priority: existing.priority,
+          assigneeAccountId: existing.assigneeAccountId,
+          labels: existingLabelsSnapshot,
+          dueDate: existingDueDate,
+          estimate: existing.estimate,
+          parent: existingParentSnapshot,
+        },
+        {
+          title: input.title !== undefined ? input.title : existing.title,
+          description: input.description !== undefined ? input.description : existing.description,
+          state: nextStateSnapshot,
+          priority: input.priority !== undefined ? input.priority : existing.priority,
+          assigneeAccountId:
+            input.assigneeAccountId !== undefined ? input.assigneeAccountId : existing.assigneeAccountId,
+          labels: nextLabelsSnapshot,
+          dueDate: nextDueDate,
+          estimate: input.estimate !== undefined ? input.estimate : existing.estimate,
+          parent: nextParentSnapshot,
+        },
+      );
+
+      await insertIssueEvents(
+        tx,
+        pendingEvents.map((event) => ({
+          organizationId: actor.organizationId,
+          teamId: existing.teamId,
+          issueId,
+          actorAccountId: actor.accountId,
+          type: event.type,
+          before: event.before,
+          after: event.after,
+          createdAt: now,
+        })),
+      );
+
+      if (input.assigneeAccountId !== undefined) {
+        if (input.assigneeAccountId !== null && input.assigneeAccountId !== existing.assigneeAccountId) {
+          await ensureIssueSubscribers(tx, {
+            organizationId: actor.organizationId,
+            issueId,
+            accountIds: [input.assigneeAccountId],
+            createdAt: now,
+          });
+        }
+        const assignedRecipients = computeAssignmentInboxRecipients({
+          previousAssigneeAccountId: existing.assigneeAccountId,
+          nextAssigneeAccountId: input.assigneeAccountId,
+          actorAccountId: actor.accountId,
+        });
+        if (assignedRecipients.length > 0) {
+          await insertInboxItems(
+            tx,
+            assignedRecipients.map((recipientAccountId) => ({
+              organizationId: actor.organizationId,
+              recipientAccountId,
+              kind: "ASSIGNED",
+              issueId,
+              actorAccountId: actor.accountId,
+              commentId: null,
+              createdAt: now,
+            })),
+          );
+        }
+      }
+
+      const detail = await hydrateIssueDetail(tx, issueId, readableTeamIds, actor.accountId);
+      return detail ? { issue: detail, previousAssigneeAccountId: existing.assigneeAccountId } : null;
     });
   },
 
@@ -1097,21 +1647,54 @@ export const prismaIssuesStore: IssuesStore = {
     return withUser(getDb(), actor, async (tx) => {
       const target = await tx.issue.findFirst({
         where: { id: issueId, deletedAt: null },
-        select: { teamId: true },
+        select: { teamId: true, number: true, team: { select: { key: true } } },
       });
       if (!target) return false;
       // Pod blokadą hierarchii: podzadania stają się zadaniami głównymi, a usunięte zadanie traci rodzica,
       // więc nie zostają odwołania do usuniętych zadań ani ukryte cykle
       await lockTeamIssueHierarchy(tx, target.teamId);
+      const now = new Date();
+      const children = await tx.issue.findMany({
+        where: { parentId: issueId, deletedAt: null },
+        select: { id: true, teamId: true },
+      });
       const updated = await tx.issue.updateMany({
         where: { id: issueId, deletedAt: null },
-        data: { deletedAt: new Date(), parentId: null },
+        data: { deletedAt: now, parentId: null },
       });
       if (updated.count === 0) return false;
-      await tx.issue.updateMany({
-        where: { parentId: issueId, deletedAt: null },
-        data: { parentId: null },
+
+      const eventsToInsert: PendingIssueEventRow[] = [];
+      if (children.length > 0) {
+        const deletedIdentifier = formatIssueIdentifier(target.team.key, target.number);
+        await tx.issue.updateMany({
+          where: { parentId: issueId, deletedAt: null },
+          data: { parentId: null },
+        });
+        for (const child of children) {
+          eventsToInsert.push({
+            organizationId: actor.organizationId,
+            teamId: child.teamId,
+            issueId: child.id,
+            actorAccountId: actor.accountId,
+            type: "PARENT_CHANGED",
+            before: { parentId: issueId, parentIdentifier: deletedIdentifier },
+            after: { parentId: null, parentIdentifier: null },
+            createdAt: now,
+          });
+        }
+      }
+      eventsToInsert.push({
+        organizationId: actor.organizationId,
+        teamId: target.teamId,
+        issueId,
+        actorAccountId: actor.accountId,
+        type: "DELETED",
+        before: { deletedAt: null },
+        after: { deletedAt: now.toISOString() },
+        createdAt: now,
       });
+      await insertIssueEvents(tx, eventsToInsert);
       return true;
     });
   },
@@ -1156,9 +1739,10 @@ export const prismaIssuesStore: IssuesStore = {
           }
         }
 
+        const now = new Date();
         const created = await tx.issueRelation.create({
           data: {
-            id: uuidv7(),
+            id: uuidv7(now.getTime()),
             organizationId: actor.organizationId,
             issueId: input.storedIssueId,
             relatedIssueId: input.storedRelatedIssueId,
@@ -1169,6 +1753,45 @@ export const prismaIssuesStore: IssuesStore = {
             relatedIssue: { select: ISSUE_REF_SELECT },
           },
         });
+
+        const sourceIdentifier = formatIssueIdentifier(created.issue.team.key, created.issue.number);
+        const targetIdentifier = formatIssueIdentifier(created.relatedIssue.team.key, created.relatedIssue.number);
+        const inverseType = created.type === "BLOCKS" ? "BLOCKED_BY" : created.type;
+
+        await insertIssueEvents(tx, [
+          {
+            organizationId: actor.organizationId,
+            teamId: created.issue.teamId,
+            issueId: created.issue.id,
+            actorAccountId: actor.accountId,
+            type: "RELATION_ADDED",
+            before: null,
+            after: {
+              relationId: created.id,
+              type: created.type,
+              relatedIssueId: created.relatedIssue.id,
+              relatedIssueTeamId: created.relatedIssue.teamId,
+              relatedIssueIdentifier: targetIdentifier,
+            },
+            createdAt: now,
+          },
+          {
+            organizationId: actor.organizationId,
+            teamId: created.relatedIssue.teamId,
+            issueId: created.relatedIssue.id,
+            actorAccountId: actor.accountId,
+            type: "RELATION_ADDED",
+            before: null,
+            after: {
+              relationId: created.id,
+              type: inverseType,
+              relatedIssueId: created.issue.id,
+              relatedIssueTeamId: created.issue.teamId,
+              relatedIssueIdentifier: sourceIdentifier,
+            },
+            createdAt: now,
+          },
+        ]);
 
         const other = created.issueId === input.viewerIssueId ? created.relatedIssue : created.issue;
         return toIssueRelationView(input.viewerIssueId, created, serializeIssueReference(other));
@@ -1208,8 +1831,58 @@ export const prismaIssuesStore: IssuesStore = {
 
   async deleteIssueRelation(actor, relationId) {
     return withUser(getDb(), actor, async (tx) => {
+      const existing = await tx.issueRelation.findUnique({
+        where: { id: relationId },
+        include: {
+          issue: { select: { id: true, teamId: true, number: true, team: { select: { key: true } } } },
+          relatedIssue: { select: { id: true, teamId: true, number: true, team: { select: { key: true } } } },
+        },
+      });
+      if (!existing) return false;
       const deleted = await tx.issueRelation.deleteMany({ where: { id: relationId } });
-      return deleted.count > 0;
+      if (deleted.count === 0) return false;
+
+      const now = new Date();
+      const sourceIdentifier = formatIssueIdentifier(existing.issue.team.key, existing.issue.number);
+      const targetIdentifier = formatIssueIdentifier(existing.relatedIssue.team.key, existing.relatedIssue.number);
+      const inverseType = existing.type === "BLOCKS" ? "BLOCKED_BY" : existing.type;
+
+      await insertIssueEvents(tx, [
+        {
+          organizationId: actor.organizationId,
+          teamId: existing.issue.teamId,
+          issueId: existing.issue.id,
+          actorAccountId: actor.accountId,
+          type: "RELATION_REMOVED",
+          before: {
+            relationId: existing.id,
+            type: existing.type,
+            relatedIssueId: existing.relatedIssue.id,
+            relatedIssueTeamId: existing.relatedIssue.teamId,
+            relatedIssueIdentifier: targetIdentifier,
+          },
+          after: null,
+          createdAt: now,
+        },
+        {
+          organizationId: actor.organizationId,
+          teamId: existing.relatedIssue.teamId,
+          issueId: existing.relatedIssue.id,
+          actorAccountId: actor.accountId,
+          type: "RELATION_REMOVED",
+          before: {
+            relationId: existing.id,
+            type: inverseType,
+            relatedIssueId: existing.issue.id,
+            relatedIssueTeamId: existing.issue.teamId,
+            relatedIssueIdentifier: sourceIdentifier,
+          },
+          after: null,
+          createdAt: now,
+        },
+      ]);
+
+      return true;
     });
   },
 
@@ -1269,6 +1942,695 @@ export const prismaIssuesStore: IssuesStore = {
       }
 
       return hydrateIssuesInOrder(tx, orderedIds);
+    });
+  },
+
+  // ── Komentarze i reakcje ──────────────────────────────────────────────────
+
+  async listIssueComments(actor, params: ListIssueCommentsStoreParams): Promise<PaginatedResult<IssueComment>> {
+    return withUser(getDb(), actor, async (tx) => {
+      const conditions: Prisma.Sql[] = [Prisma.sql`c."issue_id" = ${params.issueId}::uuid`];
+      if (params.cursor) {
+        const ts = new Date(params.cursor.t);
+        conditions.push(
+          Prisma.sql`(c."created_at" > ${ts} OR (c."created_at" = ${ts} AND c."id" > ${params.cursor.id}::uuid))`,
+        );
+      }
+      const whereSql = Prisma.join(conditions, " AND ");
+      const take = params.limit + 1;
+
+      const rows = await tx.$queryRaw<RawCommentRow[]>`
+        SELECT c."id"::text AS "id",
+               c."organization_id"::text AS "organizationId",
+               c."team_id"::text AS "teamId",
+               c."issue_id"::text AS "issueId",
+               c."author_account_id"::text AS "authorAccountId",
+               c."body",
+               c."created_at" AS "createdAt",
+               c."updated_at" AS "updatedAt",
+               c."edited_at" AS "editedAt",
+               c."deleted_at" AS "deletedAt"
+        FROM "public"."issue_comments" c
+        WHERE ${whereSql}
+        ORDER BY c."created_at" ASC, c."id" ASC
+        LIMIT ${take}
+      `;
+
+      const hasMore = rows.length > params.limit;
+      const pageRows = hasMore ? rows.slice(0, params.limit) : rows;
+      const items = await hydrateComments(tx, pageRows, actor.accountId);
+      const last = items[items.length - 1];
+      const nextCursor = hasMore && last ? encodeTimeIdCursor({ t: last.createdAt, id: last.id }) : null;
+      return { items, nextCursor };
+    });
+  },
+
+  async findCommentLocation(actor, issueId, commentId): Promise<CommentLocation | null> {
+    return withUser(getDb(), actor, async (tx) => {
+      const rows = await tx.$queryRaw<
+        {
+          id: string;
+          issueId: string;
+          teamId: string;
+          authorAccountId: string;
+          deletedAt: Date | null;
+        }[]
+      >`
+        SELECT c."id"::text AS "id",
+               c."issue_id"::text AS "issueId",
+               c."team_id"::text AS "teamId",
+               c."author_account_id"::text AS "authorAccountId",
+               c."deleted_at" AS "deletedAt"
+        FROM "public"."issue_comments" c
+        WHERE c."id" = ${commentId}::uuid AND c."issue_id" = ${issueId}::uuid
+        LIMIT 1
+      `;
+      const row = rows[0];
+      if (!row) return null;
+      return {
+        id: row.id,
+        issueId: row.issueId,
+        teamId: row.teamId,
+        authorAccountId: row.authorAccountId,
+        deletedAt: row.deletedAt ? row.deletedAt.toISOString() : null,
+      };
+    });
+  },
+
+  async createIssueComment(actor, input) {
+    return withUser(getDb(), actor, async (tx) => {
+      const activeIssue = await lockActiveIssue(tx, input.issueId);
+      if (!activeIssue || activeIssue.teamId !== input.teamId) {
+        throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono zadania");
+      }
+
+      const existingSubRows = await tx.$queryRaw<{ accountId: string }[]>`
+        SELECT "account_id"::text AS "accountId"
+        FROM "public"."issue_subscribers"
+        WHERE "issue_id" = ${input.issueId}::uuid
+      `;
+      const subscriberAccountIds = existingSubRows.map((row) => row.accountId);
+
+      const now = new Date();
+      const commentId = uuidv7(now.getTime());
+
+      const inserted = await tx.$queryRaw<RawCommentRow[]>`
+        INSERT INTO "public"."issue_comments"
+          ("id", "organization_id", "team_id", "issue_id", "author_account_id", "body", "created_at", "updated_at")
+        VALUES
+          (${commentId}::uuid, ${actor.organizationId}::uuid, ${input.teamId}::uuid, ${input.issueId}::uuid,
+           ${actor.accountId}::uuid, ${input.body}, ${now}, ${now})
+        RETURNING "id"::text AS "id",
+                  "organization_id"::text AS "organizationId",
+                  "team_id"::text AS "teamId",
+                  "issue_id"::text AS "issueId",
+                  "author_account_id"::text AS "authorAccountId",
+                  "body",
+                  "created_at" AS "createdAt",
+                  "updated_at" AS "updatedAt",
+                  "edited_at" AS "editedAt",
+                  "deleted_at" AS "deletedAt"
+      `;
+
+      await insertCommentMentions(tx, {
+        organizationId: actor.organizationId,
+        commentId,
+        accountIds: input.mentionedAccountIds,
+        createdAt: now,
+      });
+
+      // Autor oraz wspomniane osoby stają się obserwującymi zadania w tej samej transakcji
+      await ensureIssueSubscribers(tx, {
+        organizationId: actor.organizationId,
+        issueId: input.issueId,
+        accountIds: [actor.accountId, ...input.mentionedAccountIds],
+        createdAt: now,
+      });
+
+      const fanout = computeCommentInboxFanout({
+        authorAccountId: actor.accountId,
+        mentionedAccountIds: input.mentionedAccountIds,
+        subscriberAccountIds,
+      });
+
+      await insertInboxItems(tx, [
+        ...fanout.mentionedRecipients.map((recipientAccountId) => ({
+          organizationId: actor.organizationId,
+          recipientAccountId,
+          kind: "MENTIONED" as const,
+          issueId: input.issueId,
+          actorAccountId: actor.accountId,
+          commentId,
+          createdAt: now,
+        })),
+        ...fanout.commentedRecipients.map((recipientAccountId) => ({
+          organizationId: actor.organizationId,
+          recipientAccountId,
+          kind: "COMMENTED" as const,
+          issueId: input.issueId,
+          actorAccountId: actor.accountId,
+          commentId,
+          createdAt: now,
+        })),
+      ]);
+
+      const [hydrated] = await hydrateComments(tx, inserted, actor.accountId);
+      if (!hydrated) {
+        throw new ApiFailure(500, "INTERNAL_ERROR", "Nie udało się odczytać utworzonego komentarza");
+      }
+      return hydrated;
+    });
+  },
+
+  async updateIssueComment(actor, input) {
+    return withUser(getDb(), actor, async (tx) => {
+      const existingRows = await tx.$queryRaw<RawCommentRow[]>`
+        SELECT c."id"::text AS "id",
+               c."organization_id"::text AS "organizationId",
+               c."team_id"::text AS "teamId",
+               c."issue_id"::text AS "issueId",
+               c."author_account_id"::text AS "authorAccountId",
+               c."body",
+               c."created_at" AS "createdAt",
+               c."updated_at" AS "updatedAt",
+               c."edited_at" AS "editedAt",
+               c."deleted_at" AS "deletedAt"
+        FROM "public"."issue_comments" c
+        WHERE c."id" = ${input.commentId}::uuid
+          AND c."issue_id" = ${input.issueId}::uuid
+          AND c."deleted_at" IS NULL
+        FOR UPDATE
+      `;
+      const existing = existingRows[0];
+      if (!existing) return null;
+
+      const prevMentionRows = await tx.$queryRaw<{ accountId: string }[]>`
+        SELECT "account_id"::text AS "accountId"
+        FROM "public"."comment_mentions"
+        WHERE "comment_id" = ${input.commentId}::uuid
+      `;
+      const prevMentioned = prevMentionRows.map((row) => row.accountId);
+
+      const now = new Date();
+      let updatedRow = existing;
+      if (input.body !== existing.body) {
+        const updatedRows = await tx.$queryRaw<RawCommentRow[]>`
+          UPDATE "public"."issue_comments"
+          SET "body" = ${input.body},
+              "edited_at" = ${now},
+              "updated_at" = ${now}
+          WHERE "id" = ${input.commentId}::uuid AND "deleted_at" IS NULL
+          RETURNING "id"::text AS "id",
+                    "organization_id"::text AS "organizationId",
+                    "team_id"::text AS "teamId",
+                    "issue_id"::text AS "issueId",
+                    "author_account_id"::text AS "authorAccountId",
+                    "body",
+                    "created_at" AS "createdAt",
+                    "updated_at" AS "updatedAt",
+                    "edited_at" AS "editedAt",
+                    "deleted_at" AS "deletedAt"
+        `;
+        if (updatedRows[0]) {
+          updatedRow = updatedRows[0];
+        }
+      }
+
+      await tx.$executeRaw`
+        DELETE FROM "public"."comment_mentions"
+        WHERE "comment_id" = ${input.commentId}::uuid
+      `;
+      await insertCommentMentions(tx, {
+        organizationId: actor.organizationId,
+        commentId: input.commentId,
+        accountIds: input.mentionedAccountIds,
+        createdAt: now,
+      });
+
+      if (input.mentionedAccountIds.length > 0) {
+        await ensureIssueSubscribers(tx, {
+          organizationId: actor.organizationId,
+          issueId: input.issueId,
+          accountIds: input.mentionedAccountIds,
+          createdAt: now,
+        });
+      }
+
+      const newlyMentioned = computeCommentEditMentionRecipients({
+        authorAccountId: actor.accountId,
+        previousMentionedAccountIds: prevMentioned,
+        nextMentionedAccountIds: input.mentionedAccountIds,
+      });
+      if (newlyMentioned.length > 0) {
+        await insertInboxItems(
+          tx,
+          newlyMentioned.map((recipientAccountId) => ({
+            organizationId: actor.organizationId,
+            recipientAccountId,
+            kind: "MENTIONED" as const,
+            issueId: input.issueId,
+            actorAccountId: actor.accountId,
+            commentId: input.commentId,
+            createdAt: now,
+          })),
+        );
+      }
+
+      const [hydrated] = await hydrateComments(tx, [updatedRow], actor.accountId);
+      return hydrated ?? null;
+    });
+  },
+
+  async softDeleteIssueComment(actor, issueId, commentId) {
+    return withUser(getDb(), actor, async (tx) => {
+      const now = new Date();
+      const updated = await tx.$executeRaw`
+        UPDATE "public"."issue_comments"
+        SET "deleted_at" = ${now},
+            "updated_at" = ${now}
+        WHERE "id" = ${commentId}::uuid
+          AND "issue_id" = ${issueId}::uuid
+          AND "deleted_at" IS NULL
+      `;
+      return updated > 0;
+    });
+  },
+
+  async addCommentReaction(actor, input): Promise<CommentReactionsResult | null> {
+    return withUser(getDb(), actor, async (tx) => {
+      const exists = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id"::text AS "id"
+        FROM "public"."issue_comments"
+        WHERE "id" = ${input.commentId}::uuid
+          AND "issue_id" = ${input.issueId}::uuid
+          AND "deleted_at" IS NULL
+        FOR SHARE
+      `;
+      if (exists.length === 0) return null;
+
+      const now = new Date();
+      const reactionId = uuidv7(now.getTime());
+      await tx.$executeRaw`
+        INSERT INTO "public"."comment_reactions"
+          ("id", "organization_id", "comment_id", "account_id", "emoji", "created_at")
+        VALUES
+          (${reactionId}::uuid, ${actor.organizationId}::uuid, ${input.commentId}::uuid,
+           ${actor.accountId}::uuid, ${input.emoji}, ${now})
+        ON CONFLICT ("comment_id", "account_id", "emoji") DO NOTHING
+      `;
+
+      const reactionRows = await tx.$queryRaw<{ emoji: string; accountId: string }[]>`
+        SELECT "emoji", "account_id"::text AS "accountId"
+        FROM "public"."comment_reactions"
+        WHERE "comment_id" = ${input.commentId}::uuid
+      `;
+      return {
+        commentId: input.commentId,
+        reactions: aggregateCommentReactions(reactionRows, actor.accountId),
+      };
+    });
+  },
+
+  async removeCommentReaction(actor, input): Promise<boolean> {
+    return withUser(getDb(), actor, async (tx) => {
+      const exists = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id"::text AS "id"
+        FROM "public"."issue_comments"
+        WHERE "id" = ${input.commentId}::uuid
+          AND "issue_id" = ${input.issueId}::uuid
+          AND "deleted_at" IS NULL
+        FOR SHARE
+      `;
+      if (exists.length === 0) return false;
+
+      await tx.$executeRaw`
+        DELETE FROM "public"."comment_reactions"
+        WHERE "comment_id" = ${input.commentId}::uuid
+          AND "account_id" = ${actor.accountId}::uuid
+          AND "emoji" = ${input.emoji}
+      `;
+      return true;
+    });
+  },
+
+  // ── Aktywność zadania (historia + komentarze chronologicznie, najstarsze pierwsze) ──
+
+  async listIssueActivity(actor, params: ListIssueActivityStoreParams): Promise<PaginatedResult<IssueActivityItem>> {
+    if (params.readableTeamIds !== "ALL" && params.readableTeamIds.length === 0) {
+      return { items: [], nextCursor: null };
+    }
+    return withUser(getDb(), actor, async (tx) => {
+      const cursorWhere = params.cursor
+        ? (() => {
+            const ts = new Date(params.cursor.t);
+            return Prisma.sql`WHERE (
+              a."created_at" > ${ts}
+              OR (a."created_at" = ${ts} AND a."sort_rank" > ${params.cursor.r})
+              OR (a."created_at" = ${ts} AND a."sort_rank" = ${params.cursor.r} AND a."id" > ${params.cursor.id}::uuid)
+            )`;
+          })()
+        : Prisma.empty;
+
+      const take = params.limit + 1;
+      const entries = await tx.$queryRaw<
+        { kind: "event" | "comment"; id: string; sortRank: number; createdAt: Date }[]
+      >`
+        SELECT a."kind", a."id"::text AS "id", a."sort_rank" AS "sortRank", a."created_at" AS "createdAt"
+        FROM (
+          SELECT 'event'::text AS "kind", e."id", 0 AS "sort_rank", e."created_at"
+          FROM "public"."issue_events" e
+          WHERE e."issue_id" = ${params.issueId}::uuid
+          UNION ALL
+          SELECT 'comment'::text AS "kind", c."id", 1 AS "sort_rank", c."created_at"
+          FROM "public"."issue_comments" c
+          WHERE c."issue_id" = ${params.issueId}::uuid
+        ) AS a
+        ${cursorWhere}
+        ORDER BY a."created_at" ASC, a."sort_rank" ASC, a."id" ASC
+        LIMIT ${take}
+      `;
+
+      const hasMore = entries.length > params.limit;
+      const pageEntries = hasMore ? entries.slice(0, params.limit) : entries;
+      const eventIds = pageEntries.filter((entry) => entry.kind === "event").map((entry) => entry.id);
+      const commentIds = pageEntries.filter((entry) => entry.kind === "comment").map((entry) => entry.id);
+
+      const eventsById = new Map<string, IssueEvent>();
+      if (eventIds.length > 0) {
+        type RawActivityEventRow = RawEventRow & {
+          resolvedRelatedTeamId: string | null;
+          resolvedParentBeforeTeamId: string | null;
+          resolvedParentAfterTeamId: string | null;
+        };
+        const eventRows = await tx.$queryRaw<RawActivityEventRow[]>`
+          SELECT e."id"::text AS "id",
+                 e."organization_id"::text AS "organizationId",
+                 e."team_id"::text AS "teamId",
+                 e."issue_id"::text AS "issueId",
+                 e."actor_account_id"::text AS "actorAccountId",
+                 e."type"::text AS "type",
+                 e."before",
+                 e."after",
+                 e."created_at" AS "createdAt",
+                 rel_i."team_id"::text AS "resolvedRelatedTeamId",
+                 pb_i."team_id"::text AS "resolvedParentBeforeTeamId",
+                 pa_i."team_id"::text AS "resolvedParentAfterTeamId"
+          FROM "public"."issue_events" e
+          LEFT JOIN "public"."issues" rel_i
+            ON e."type" IN ('RELATION_ADDED'::"public"."IssueEventType", 'RELATION_REMOVED'::"public"."IssueEventType")
+           AND rel_i."id" = NULLIF(COALESCE(e."after"->>'relatedIssueId', e."before"->>'relatedIssueId'), '')::uuid
+          LEFT JOIN "public"."issues" pb_i
+            ON e."type" = 'PARENT_CHANGED'::"public"."IssueEventType"
+           AND pb_i."id" = NULLIF(e."before"->>'parentId', '')::uuid
+          LEFT JOIN "public"."issues" pa_i
+            ON e."type" = 'PARENT_CHANGED'::"public"."IssueEventType"
+           AND pa_i."id" = NULLIF(e."after"->>'parentId', '')::uuid
+          WHERE e."id" = ANY(${eventIds}::uuid[])
+        `;
+        for (const row of eventRows) {
+          const event = redactIssueEvent(serializeIssueEvent(row), params.readableTeamIds, {
+            relatedIssueTeamId: row.resolvedRelatedTeamId,
+            parentBeforeTeamId: row.resolvedParentBeforeTeamId,
+            parentAfterTeamId: row.resolvedParentAfterTeamId,
+          });
+          eventsById.set(row.id, event);
+        }
+      }
+
+      const commentsById = new Map<string, IssueComment>();
+      if (commentIds.length > 0) {
+        const commentRows = await tx.$queryRaw<RawCommentRow[]>`
+          SELECT "id"::text AS "id",
+                 "organization_id"::text AS "organizationId",
+                 "team_id"::text AS "teamId",
+                 "issue_id"::text AS "issueId",
+                 "author_account_id"::text AS "authorAccountId",
+                 "body",
+                 "created_at" AS "createdAt",
+                 "updated_at" AS "updatedAt",
+                 "edited_at" AS "editedAt",
+                 "deleted_at" AS "deletedAt"
+          FROM "public"."issue_comments"
+          WHERE "id" = ANY(${commentIds}::uuid[])
+        `;
+        const hydrated = await hydrateComments(tx, commentRows, actor.accountId);
+        for (const comment of hydrated) {
+          commentsById.set(comment.id, comment);
+        }
+      }
+
+      const items: IssueActivityItem[] = [];
+      for (const entry of pageEntries) {
+        if (entry.kind === "event") {
+          const event = eventsById.get(entry.id);
+          if (event) {
+            items.push({ kind: "event", id: event.id, createdAt: event.createdAt, event });
+          }
+        } else {
+          const comment = commentsById.get(entry.id);
+          if (comment) {
+            items.push({ kind: "comment", id: comment.id, createdAt: comment.createdAt, comment });
+          }
+        }
+      }
+
+      const lastEntry = pageEntries[pageEntries.length - 1];
+      const nextCursor =
+        hasMore && lastEntry
+          ? encodeActivityCursor({
+              t: lastEntry.createdAt.toISOString(),
+              r: lastEntry.sortRank === 0 ? 0 : 1,
+              id: lastEntry.id,
+            })
+          : null;
+
+      return { items, nextCursor };
+    });
+  },
+
+  // ── Obserwowanie zadania ──────────────────────────────────────────────────
+
+  async subscribeIssue(actor, issueId): Promise<IssueSubscription | null> {
+    return withUser(getDb(), actor, async (tx) => {
+      const active = await lockActiveIssue(tx, issueId);
+      if (!active) return null;
+      await ensureIssueSubscribers(tx, {
+        organizationId: actor.organizationId,
+        issueId,
+        accountIds: [actor.accountId],
+        createdAt: new Date(),
+      });
+      return { issueId, isSubscribed: true };
+    });
+  },
+
+  async unsubscribeIssue(actor, issueId): Promise<boolean> {
+    return withUser(getDb(), actor, async (tx) => {
+      const active = await lockActiveIssue(tx, issueId);
+      if (!active) return false;
+      await tx.$executeRaw`
+        DELETE FROM "public"."issue_subscribers"
+        WHERE "issue_id" = ${issueId}::uuid AND "account_id" = ${actor.accountId}::uuid
+      `;
+      return true;
+    });
+  },
+
+  // ── Skrzynka powiadomień ──────────────────────────────────────────────────
+
+  async listInboxItems(actor, params: ListInboxStoreParams): Promise<PaginatedResult<InboxItem>> {
+    if (params.readableTeamIds !== "ALL" && params.readableTeamIds.length === 0) {
+      return { items: [], nextCursor: null };
+    }
+    return withUser(getDb(), actor, async (tx) => {
+      const conditions: Prisma.Sql[] = [
+        Prisma.sql`ii."recipient_account_id" = ${actor.accountId}::uuid`,
+        Prisma.sql`ii."archived_at" IS NULL`,
+        Prisma.sql`i."deleted_at" IS NULL`,
+        Prisma.sql`t."archived_at" IS NULL`,
+        Prisma.sql`(ii."comment_id" IS NULL OR c."deleted_at" IS NULL)`,
+      ];
+      if (params.readableTeamIds !== "ALL") {
+        conditions.push(Prisma.sql`i."team_id" = ANY(${params.readableTeamIds}::uuid[])`);
+      }
+      if (params.filter === "unread") {
+        conditions.push(Prisma.sql`ii."read_at" IS NULL`);
+      }
+      if (params.cursor) {
+        const ts = new Date(params.cursor.t);
+        conditions.push(
+          Prisma.sql`(ii."created_at" < ${ts} OR (ii."created_at" = ${ts} AND ii."id" < ${params.cursor.id}::uuid))`,
+        );
+      }
+
+      const whereSql = Prisma.join(conditions, " AND ");
+      const take = params.limit + 1;
+
+      const rows = await tx.$queryRaw<RawInboxRow[]>`
+        SELECT ii."id"::text AS "id",
+               ii."organization_id"::text AS "organizationId",
+               ii."recipient_account_id"::text AS "recipientAccountId",
+               ii."kind"::text AS "kind",
+               ii."issue_id"::text AS "issueId",
+               ii."actor_account_id"::text AS "actorAccountId",
+               ii."comment_id"::text AS "commentId",
+               c."body" AS "commentBody",
+               c."deleted_at" AS "commentDeletedAt",
+               ii."created_at" AS "createdAt",
+               ii."read_at" AS "readAt",
+               ii."archived_at" AS "archivedAt",
+               i."team_id"::text AS "issueTeamId",
+               i."number" AS "issueNumber",
+               i."title" AS "issueTitle",
+               t."key" AS "teamKey",
+               s."id"::text AS "stateId",
+               s."name" AS "stateName",
+               s."category"::text AS "stateCategory",
+               s."color" AS "stateColor",
+               s."position" AS "statePosition"
+        FROM "public"."inbox_items" ii
+        JOIN "public"."issues" i ON i."id" = ii."issue_id"
+        JOIN "public"."teams" t ON t."id" = i."team_id"
+        JOIN "public"."workflow_states" s ON s."id" = i."state_id"
+        LEFT JOIN "public"."issue_comments" c ON c."id" = ii."comment_id"
+        WHERE ${whereSql}
+        ORDER BY ii."created_at" DESC, ii."id" DESC
+        LIMIT ${take}
+      `;
+
+      const hasMore = rows.length > params.limit;
+      const pageRows = hasMore ? rows.slice(0, params.limit) : rows;
+      const items = await hydrateInboxRows(tx, pageRows);
+      const last = items[items.length - 1];
+      const nextCursor = hasMore && last ? encodeTimeIdCursor({ t: last.createdAt, id: last.id }) : null;
+      return { items, nextCursor };
+    });
+  },
+
+  async getInboxUnreadCount(actor, readableTeamIds): Promise<number> {
+    if (readableTeamIds !== "ALL" && readableTeamIds.length === 0) {
+      return 0;
+    }
+    return withUser(getDb(), actor, async (tx) => {
+      const teamFilter =
+        readableTeamIds === "ALL" ? Prisma.sql`TRUE` : Prisma.sql`i."team_id" = ANY(${readableTeamIds}::uuid[])`;
+      const rows = await tx.$queryRaw<{ count: number }[]>`
+        SELECT COUNT(*)::int AS "count"
+        FROM "public"."inbox_items" ii
+        JOIN "public"."issues" i ON i."id" = ii."issue_id"
+        JOIN "public"."teams" t ON t."id" = i."team_id"
+        LEFT JOIN "public"."issue_comments" c ON c."id" = ii."comment_id"
+        WHERE ii."recipient_account_id" = ${actor.accountId}::uuid
+          AND ii."read_at" IS NULL
+          AND ii."archived_at" IS NULL
+          AND i."deleted_at" IS NULL
+          AND t."archived_at" IS NULL
+          AND (ii."comment_id" IS NULL OR c."deleted_at" IS NULL)
+          AND ${teamFilter}
+      `;
+      return rows[0]?.count ?? 0;
+    });
+  },
+
+  async updateInboxItem(actor, params: UpdateInboxItemStoreParams): Promise<InboxItem | null> {
+    if (params.readableTeamIds !== "ALL" && params.readableTeamIds.length === 0) {
+      return null;
+    }
+    return withUser(getDb(), actor, async (tx) => {
+      const teamFilter =
+        params.readableTeamIds === "ALL"
+          ? Prisma.sql`TRUE`
+          : Prisma.sql`i."team_id" = ANY(${params.readableTeamIds}::uuid[])`;
+      const existingRows = await tx.$queryRaw<RawInboxRow[]>`
+        SELECT ii."id"::text AS "id",
+               ii."organization_id"::text AS "organizationId",
+               ii."recipient_account_id"::text AS "recipientAccountId",
+               ii."kind"::text AS "kind",
+               ii."issue_id"::text AS "issueId",
+               ii."actor_account_id"::text AS "actorAccountId",
+               ii."comment_id"::text AS "commentId",
+               c."body" AS "commentBody",
+               c."deleted_at" AS "commentDeletedAt",
+               ii."created_at" AS "createdAt",
+               ii."read_at" AS "readAt",
+               ii."archived_at" AS "archivedAt",
+               i."team_id"::text AS "issueTeamId",
+               i."number" AS "issueNumber",
+               i."title" AS "issueTitle",
+               t."key" AS "teamKey",
+               s."id"::text AS "stateId",
+               s."name" AS "stateName",
+               s."category"::text AS "stateCategory",
+               s."color" AS "stateColor",
+               s."position" AS "statePosition"
+        FROM "public"."inbox_items" ii
+        JOIN "public"."issues" i ON i."id" = ii."issue_id"
+        JOIN "public"."teams" t ON t."id" = i."team_id"
+        JOIN "public"."workflow_states" s ON s."id" = i."state_id"
+        LEFT JOIN "public"."issue_comments" c ON c."id" = ii."comment_id"
+        WHERE ii."id" = ${params.itemId}::uuid
+          AND ii."recipient_account_id" = ${actor.accountId}::uuid
+          AND i."deleted_at" IS NULL
+          AND t."archived_at" IS NULL
+          AND (ii."comment_id" IS NULL OR c."deleted_at" IS NULL)
+          AND ${teamFilter}
+        FOR UPDATE OF ii
+      `;
+      const existing = existingRows[0];
+      if (!existing) return null;
+
+      const now = new Date();
+      const nextReadAt =
+        params.read === true ? (existing.readAt ?? now) : params.read === false ? null : existing.readAt;
+      const nextArchivedAt =
+        params.archived === true
+          ? (existing.archivedAt ?? now)
+          : params.archived === false
+            ? null
+            : existing.archivedAt;
+
+      await tx.$executeRaw`
+        UPDATE "public"."inbox_items"
+        SET "read_at" = ${nextReadAt},
+            "archived_at" = ${nextArchivedAt}
+        WHERE "id" = ${params.itemId}::uuid
+          AND "recipient_account_id" = ${actor.accountId}::uuid
+      `;
+
+      const [hydrated] = await hydrateInboxRows(tx, [{ ...existing, readAt: nextReadAt, archivedAt: nextArchivedAt }]);
+      return hydrated ?? null;
+    });
+  },
+
+  async markAllInboxRead(actor, readableTeamIds): Promise<number> {
+    if (readableTeamIds !== "ALL" && readableTeamIds.length === 0) {
+      return 0;
+    }
+    return withUser(getDb(), actor, async (tx) => {
+      const teamFilter =
+        readableTeamIds === "ALL" ? Prisma.sql`TRUE` : Prisma.sql`i."team_id" = ANY(${readableTeamIds}::uuid[])`;
+      const now = new Date();
+      const updated = await tx.$executeRaw`
+        UPDATE "public"."inbox_items" ii
+        SET "read_at" = ${now}
+        FROM "public"."issues" i, "public"."teams" t
+        WHERE ii."issue_id" = i."id"
+          AND i."team_id" = t."id"
+          AND ii."recipient_account_id" = ${actor.accountId}::uuid
+          AND ii."read_at" IS NULL
+          AND ii."archived_at" IS NULL
+          AND i."deleted_at" IS NULL
+          AND t."archived_at" IS NULL
+          AND (
+            ii."comment_id" IS NULL
+            OR EXISTS (
+              SELECT 1 FROM "public"."issue_comments" c
+              WHERE c."id" = ii."comment_id" AND c."deleted_at" IS NULL
+            )
+          )
+          AND ${teamFilter}
+      `;
+      return updated;
     });
   },
 };

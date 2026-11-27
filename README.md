@@ -19,7 +19,9 @@ Pierwsza wersja KivoTasks powstaje w pięciu etapach opisanych w karcie produktu
 - **Etap 1 (zadania, gotowy):**
   - **Etap 1a (model danych i API, gotowy):** zespoły oparte na jednostkach Core z krótkimi kluczami, domyślne i edytowalne statusy obiegu, etykiety zespołów, zadania z atomową numeracją (`KEY-number`), priorytetami, przypisaniem członków zespołu, podzadaniami bez cykli, relacjami (`BLOCKS`/`BLOCKED_BY`, `RELATED`, `DUPLICATE`), stronicowaniem kursorowym, filtrami, sortowaniem i wyszukiwaniem pełnotekstowym (`tsvector` + GIN) z RLS na wszystkich tabelach.
   - **Etap 1b (interfejs, gotowy):** lista zadań zespołu (`/teams/[key]`) i „Moje zadania” (`/my-issues`) z filtrami w URL i stronicowaniem kursorowym, tablica Kanban (`/teams/[key]/board`) z przeciąganiem i menu klawiaturowym „Przenieś do…”, szczegóły zadania (`/issue/[identifier]`) z podzadaniami i relacjami, okno tworzenia zadania, lista i ustawienia zespołów (`/teams`, `/teams/[key]/settings`), paleta `⌘K` z wyszukiwaniem zadań oraz skróty klawiszowe (`c`, `/`, `g i`, `g t`, `g b`, `j`/`k`/`Enter`, `?`).
-- **Etap 2 (współpraca):** komentarze, historia zmian, załączniki, skrzynka powiadomień.
+- **Etap 2 (współpraca):**
+  - **Etap 2a (komentarze, historia i skrzynka, gotowy):** komentarze Markdown z `@wzmiankami` członków zespołu (autouzupełnianie klawiaturą, walidacja przez Core Directory) i reakcjami emoji (`👍 ❤️ 🎉 😄 👀 🚀`), automatyczna historia zmian zadania (`issue_events`) połączona chronologicznie z komentarzami, obserwowanie zadań (automatyczne i ręczne) oraz skrzynka powiadomień (`/inbox`, licznik nieprzeczytanych w pasku bocznym, skrót `g n`, wpis „Skrzynka” w `⌘K`).
+  - **Etap 2b (załączniki, planowany):** załączniki plików do zadań i komentarzy.
 - **Etap 3 (planowanie):** projekty ponad zespołami, cykle, triage, własne widoki, oś czasu.
 - **Etap 4 (przegląd):** mapy drogowe, inicjatywy, statystyki, szablony zadań, SLA, archiwum, import i integracje.
 
@@ -79,7 +81,7 @@ Następnie w Core API (`http://localhost:3200/core/v1`, z tokenem Ownera firmy) 
 ### Kanał zdarzeń Core i baza danych
 
 - **Kanał zdarzeń Core (ADR-0100):** `apps/web/src/instrumentation.ts` uruchamia odpytywanie `GET /core/v1/products/kivotasks/events` (`KIVOTASKS_EVENT_FEED_INTERVAL_MS`, domyślnie `5000` ms w `development`, `0` poza nim). Zdarzenie `organization.permissions.changed` natychmiast unieważnia pamięć podręczną uprawnień dla wskazanej firmy i konta.
-- **Baza danych:** PostgreSQL na porcie `5436` (kontener `kivo-tasks-database`). Zawiera tabele techniczne (`auth.sessions`, `public.event_feed_cursors`, `public.processed_events`), funkcje pomocnicze RLS (`public.current_organization_id()`, `public.current_account_id()`) oraz tabele domenowe etapu 1a (`teams`, `workflow_states`, `labels`, `issues`, `issue_labels`, `issue_relations`) z wymuszonym RLS (`ENABLE` + `FORCE`) i testami separacji firm.
+- **Baza danych:** PostgreSQL na porcie `5436` (kontener `kivo-tasks-database`). Zawiera tabele techniczne (`auth.sessions`, `public.event_feed_cursors`, `public.processed_events`), funkcje pomocnicze RLS (`public.current_organization_id()`, `public.current_account_id()`), tabele domenowe etapu 1a (`teams`, `workflow_states`, `labels`, `issues`, `issue_labels`, `issue_relations`) oraz tabele współpracy etapu 2a (`issue_comments`, `comment_mentions`, `comment_reactions`, `issue_events`, `issue_subscribers`, `inbox_items`) z wymuszonym RLS (`ENABLE` + `FORCE`), złożonymi kluczami obcymi i testami separacji firm.
 
 ## Polecenia i kontrole
 

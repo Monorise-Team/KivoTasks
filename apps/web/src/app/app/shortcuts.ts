@@ -3,6 +3,7 @@ import type { ShortcutHelpCategory } from "@monorise-team/ui";
 export type AppShortcutAction =
   | { readonly type: "new-issue" }
   | { readonly type: "focus-search" }
+  | { readonly type: "go-inbox" }
   | { readonly type: "go-my-issues" }
   | { readonly type: "go-teams" }
   | { readonly type: "go-board"; readonly teamKey: string }
@@ -49,6 +50,8 @@ export function resolveShortcutAction(
       return context.canWriteIssues && context.hasTeams ? { type: "new-issue" } : null;
     case "/":
       return { type: "focus-search" };
+    case "g n":
+      return { type: "go-inbox" };
     case "g i":
       return { type: "go-my-issues" };
     case "g t":
@@ -99,6 +102,7 @@ export function buildShortcutHelpCategories(options: {
   ];
 
   const navigationItems = [
+    { label: "Skrzynka", shortcut: "g n" },
     { label: "Moje zadania", shortcut: "g i" },
     { label: "Zespoły", shortcut: "g t" },
     ...(options.hasBoardTarget ? [{ label: "Tablica bieżącego zespołu", shortcut: "g b" }] : []),
