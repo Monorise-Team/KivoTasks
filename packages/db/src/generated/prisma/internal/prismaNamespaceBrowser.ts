@@ -64,6 +64,7 @@ export const ModelName = {
   CommentMention: 'CommentMention',
   CommentReaction: 'CommentReaction',
   IssueEvent: 'IssueEvent',
+  IssueAttachment: 'IssueAttachment',
   IssueSubscriber: 'IssueSubscriber',
   InboxItem: 'InboxItem'
 } as const
@@ -257,6 +258,24 @@ export const IssueEventScalarFieldEnum = {
 } as const
 
 export type IssueEventScalarFieldEnum = (typeof IssueEventScalarFieldEnum)[keyof typeof IssueEventScalarFieldEnum]
+
+
+export const IssueAttachmentScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  teamId: 'teamId',
+  issueId: 'issueId',
+  uploaderAccountId: 'uploaderAccountId',
+  fileName: 'fileName',
+  contentType: 'contentType',
+  sizeBytes: 'sizeBytes',
+  sha256: 'sha256',
+  storageKey: 'storageKey',
+  createdAt: 'createdAt',
+  deletedAt: 'deletedAt'
+} as const
+
+export type IssueAttachmentScalarFieldEnum = (typeof IssueAttachmentScalarFieldEnum)[keyof typeof IssueAttachmentScalarFieldEnum]
 
 
 export const IssueSubscriberScalarFieldEnum = {

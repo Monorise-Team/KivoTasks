@@ -410,6 +410,7 @@ export const ModelName = {
   CommentMention: 'CommentMention',
   CommentReaction: 'CommentReaction',
   IssueEvent: 'IssueEvent',
+  IssueAttachment: 'IssueAttachment',
   IssueSubscriber: 'IssueSubscriber',
   InboxItem: 'InboxItem'
 } as const
@@ -427,7 +428,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "session" | "eventFeedCursor" | "processedEvent" | "team" | "workflowState" | "label" | "issue" | "issueLabel" | "issueRelation" | "issueComment" | "commentMention" | "commentReaction" | "issueEvent" | "issueSubscriber" | "inboxItem"
+    modelProps: "session" | "eventFeedCursor" | "processedEvent" | "team" | "workflowState" | "label" | "issue" | "issueLabel" | "issueRelation" | "issueComment" | "commentMention" | "commentReaction" | "issueEvent" | "issueAttachment" | "issueSubscriber" | "inboxItem"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1393,6 +1394,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    IssueAttachment: {
+      payload: Prisma.$IssueAttachmentPayload<ExtArgs>
+      fields: Prisma.IssueAttachmentFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.IssueAttachmentFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IssueAttachmentPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.IssueAttachmentFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IssueAttachmentPayload>
+        }
+        findFirst: {
+          args: Prisma.IssueAttachmentFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IssueAttachmentPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.IssueAttachmentFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IssueAttachmentPayload>
+        }
+        findMany: {
+          args: Prisma.IssueAttachmentFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IssueAttachmentPayload>[]
+        }
+        create: {
+          args: Prisma.IssueAttachmentCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IssueAttachmentPayload>
+        }
+        createMany: {
+          args: Prisma.IssueAttachmentCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.IssueAttachmentCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IssueAttachmentPayload>[]
+        }
+        delete: {
+          args: Prisma.IssueAttachmentDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IssueAttachmentPayload>
+        }
+        update: {
+          args: Prisma.IssueAttachmentUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IssueAttachmentPayload>
+        }
+        deleteMany: {
+          args: Prisma.IssueAttachmentDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.IssueAttachmentUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.IssueAttachmentUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IssueAttachmentPayload>[]
+        }
+        upsert: {
+          args: Prisma.IssueAttachmentUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$IssueAttachmentPayload>
+        }
+        aggregate: {
+          args: Prisma.IssueAttachmentAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateIssueAttachment>
+        }
+        groupBy: {
+          args: Prisma.IssueAttachmentGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.IssueAttachmentGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.IssueAttachmentCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.IssueAttachmentCountAggregateOutputType> | number
+        }
+      }
+    }
     IssueSubscriber: {
       payload: Prisma.$IssueSubscriberPayload<ExtArgs>
       fields: Prisma.IssueSubscriberFieldRefs
@@ -1753,6 +1828,24 @@ export const IssueEventScalarFieldEnum = {
 } as const
 
 export type IssueEventScalarFieldEnum = (typeof IssueEventScalarFieldEnum)[keyof typeof IssueEventScalarFieldEnum]
+
+
+export const IssueAttachmentScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  teamId: 'teamId',
+  issueId: 'issueId',
+  uploaderAccountId: 'uploaderAccountId',
+  fileName: 'fileName',
+  contentType: 'contentType',
+  sizeBytes: 'sizeBytes',
+  sha256: 'sha256',
+  storageKey: 'storageKey',
+  createdAt: 'createdAt',
+  deletedAt: 'deletedAt'
+} as const
+
+export type IssueAttachmentScalarFieldEnum = (typeof IssueAttachmentScalarFieldEnum)[keyof typeof IssueAttachmentScalarFieldEnum]
 
 
 export const IssueSubscriberScalarFieldEnum = {
@@ -2117,6 +2210,7 @@ export type GlobalOmitConfig = {
   commentMention?: Prisma.CommentMentionOmit
   commentReaction?: Prisma.CommentReactionOmit
   issueEvent?: Prisma.IssueEventOmit
+  issueAttachment?: Prisma.IssueAttachmentOmit
   issueSubscriber?: Prisma.IssueSubscriberOmit
   inboxItem?: Prisma.InboxItemOmit
 }
