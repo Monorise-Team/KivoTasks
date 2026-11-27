@@ -15,6 +15,8 @@ export const ERROR_CODES = [
   "NOT_FOUND",
   "VALIDATION_FAILED",
   "CONFLICT",
+  "PAYLOAD_TOO_LARGE",
+  "STORAGE_QUOTA_EXCEEDED",
   "RATE_LIMITED",
   "INTERNAL_ERROR",
 ] as const;
@@ -540,6 +542,8 @@ export const ISSUE_EVENT_TYPES = [
   "RELATION_ADDED",
   "RELATION_REMOVED",
   "DELETED",
+  "ATTACHMENT_ADDED",
+  "ATTACHMENT_REMOVED",
 ] as const;
 export const IssueEventType = z.enum(ISSUE_EVENT_TYPES);
 export type IssueEventType = z.infer<typeof IssueEventType>;
@@ -720,5 +724,68 @@ export const InboxReadAllResult = z.object({
   updatedCount: z.number().int().min(0),
 });
 export type InboxReadAllResult = z.infer<typeof InboxReadAllResult>;
+
+// ── Załączniki i limit miejsca (etap 2b) ────────────────────────────────────
+
+export const ATTACHMENT_CONTENT_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "application/octet-stream",
+] as const;
+export const AttachmentContentType = z.enum(ATTACHMENT_CONTENT_TYPES);
+export type AttachmentContentType = z.infer<typeof AttachmentContentType>;
+
+export const IssueAttachmentUploader = z.object({
+  accountId: z.string(),
+  name: z.string(),
+});
+export type IssueAttachmentUploader = z.infer<typeof IssueAttachmentUploader>;
+
+export const IssueAttachment = z.object({
+  id: z.string(),
+  issueId: z.string(),
+  fileName: z.string(),
+  contentType: AttachmentContentType,
+  sizeBytes: z.number().int().min(1),
+  uploader: IssueAttachmentUploader,
+  createdAt: z.string(),
+  contentUrl: z.string(),
+  inline: z.boolean(),
+  canDelete: z.boolean(),
+});
+export type IssueAttachment = z.infer<typeof IssueAttachment>;
+
+export const IssueAttachmentList = z.array(IssueAttachment);
+export type IssueAttachmentList = z.infer<typeof IssueAttachmentList>;
+
+export const IssueAttachmentsQuery = z.object({
+  limit: PageLimit,
+  cursor: PageCursor.optional(),
+});
+export type IssueAttachmentsQuery = z.input<typeof IssueAttachmentsQuery>;
+export type ParsedIssueAttachmentsQuery = z.infer<typeof IssueAttachmentsQuery>;
+
+export const IssueAttachmentEventPayload = z.object({
+  attachmentId: z.string(),
+  fileName: z.string(),
+  sizeBytes: z.number().int().min(1),
+  contentType: AttachmentContentType,
+});
+export type IssueAttachmentEventPayload = z.infer<typeof IssueAttachmentEventPayload>;
+
+export const STORAGE_USAGE_STATES = ["OK", "WARNING", "FULL"] as const;
+export const StorageUsageState = z.enum(STORAGE_USAGE_STATES);
+export type StorageUsageState = z.infer<typeof StorageUsageState>;
+
+export const StorageUsage = z.object({
+  usedBytes: z.number().int().min(0),
+  quotaBytes: z.number().int().min(1),
+  maxFileBytes: z.number().int().min(1),
+  usedRatio: z.number().min(0),
+  state: StorageUsageState,
+});
+export type StorageUsage = z.infer<typeof StorageUsage>;
 
 export * from "./permissions.js";

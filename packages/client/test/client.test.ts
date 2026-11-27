@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ApiError, createClient, type Me } from "../src/index.js";
+import { ApiError, attachmentContentUrl, createClient, type Me } from "../src/index.js";
 
 function fakeFetch(status: number, body: unknown, seen: { url?: string; init?: RequestInit } = {}) {
   return (async (url: string, init?: RequestInit) => {
@@ -187,6 +187,70 @@ describe("klient API KivoTasks", () => {
     expect(await readAllClient.inbox.markAllRead()).toEqual({ updatedCount: 4 });
     expect(seen.url).toBe("/api/v1/inbox/read-all");
     expect(seen.init?.method).toBe("POST");
+  });
+
+  it("obsługuje załączniki (lista, multipart bez ręcznego Content-Type, pobranie, usunięcie, URL treści) oraz zużycie miejsca", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+
+    const listClient = createClient({
+      fetch: fakeFetch(200, { data: [], meta: { nextCursor: "att-2" }, error: null }, seen),
+    });
+    expect(await listClient.issues.listAttachments("i-1", { limit: 10, cursor: "att-1" })).toEqual({
+      items: [],
+      nextCursor: "att-2",
+    });
+    expect(seen.url).toBe("/api/v1/issues/i-1/attachments?limit=10&cursor=att-1");
+    expect(seen.init?.method).toBe("GET");
+
+    const uploadClient = createClient({
+      fetch: fakeFetch(201, { data: { id: "att-1", fileName: "zrzut.png" }, meta: {}, error: null }, seen),
+    });
+    const blob = new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" });
+    await uploadClient.issues.uploadAttachment("i-1", blob, "zrzut.png");
+    expect(seen.url).toBe("/api/v1/issues/i-1/attachments");
+    expect(seen.init?.method).toBe("POST");
+    expect(seen.init?.body).toBeInstanceOf(FormData);
+    expect((seen.init?.headers as Record<string, string>)["Content-Type"]).toBeUndefined();
+    const sentPart = (seen.init?.body as FormData).get("file");
+    expect(sentPart).toBeInstanceOf(File);
+    expect((sentPart as File).name).toBe("zrzut.png");
+
+    const getClient = createClient({
+      fetch: fakeFetch(200, { data: { id: "att-1" }, meta: {}, error: null }, seen),
+    });
+    await getClient.attachments.get("att-1");
+    expect(seen.url).toBe("/api/v1/attachments/att-1");
+    expect(seen.init?.method).toBe("GET");
+
+    const deleteClient = createClient({ fetch: fakeFetch(204, null, seen) });
+    await expect(deleteClient.attachments.delete("att-1")).resolves.toBeUndefined();
+    expect(seen.url).toBe("/api/v1/attachments/att-1");
+    expect(seen.init?.method).toBe("DELETE");
+
+    const storageClient = createClient({
+      baseUrl: "https://kivo.monorise.studio",
+      fetch: fakeFetch(
+        200,
+        {
+          data: { usedBytes: 100, quotaBytes: 1000, maxFileBytes: 200, usedRatio: 0.1, state: "OK" },
+          meta: {},
+          error: null,
+        },
+        seen,
+      ),
+    });
+    expect(await storageClient.storage.get()).toEqual({
+      usedBytes: 100,
+      quotaBytes: 1000,
+      maxFileBytes: 200,
+      usedRatio: 0.1,
+      state: "OK",
+    });
+    expect(seen.url).toBe("https://kivo.monorise.studio/api/v1/storage");
+    expect(storageClient.attachments.contentUrl("att-1")).toBe(
+      "https://kivo.monorise.studio/api/v1/attachments/att-1/content",
+    );
+    expect(attachmentContentUrl("att-1")).toBe("/api/v1/attachments/att-1/content");
   });
 
   it("zamienia błąd API oraz błąd sieci na ApiError z kodem", async () => {
