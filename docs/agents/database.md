@@ -1,6 +1,6 @@
 # Baza danych KivoTasks
 
-KivoTasks korzysta z bazy PostgreSQL 17 i Prisma 7 w paczce `packages/db` (`@kivotasks/db`, ADR-0096). Lokalnie baza działa w Dockerze na porcie `5436` (kontener `kivo-tasks-postgres-1`), żeby nie kolidować z Core (`5433`), AvenMail (`5434`) i TimoTime (`5435`).
+KivoTasks korzysta z bazy PostgreSQL 17 i Prisma 7 w paczce `packages/db` (`@kivotasks/db`, ADR-0096). Lokalnie baza działa w Dockerze na porcie `5436` (kontener `kivo-tasks-database`), żeby nie kolidować z Core (`5433`), AvenMail (`5434`) i TimoTime (`5435`).
 
 ## Role i bazy (`docker/postgres-init.sql`)
 
