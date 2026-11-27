@@ -26,6 +26,7 @@ const DOMAIN_TABLES = [
   "issue_events",
   "issue_subscribers",
   "inbox_items",
+  "issue_attachments",
 ] as const;
 
 function expectForeignKeyError(error: unknown): void {
@@ -38,6 +39,7 @@ function expectForeignKeyError(error: unknown): void {
 afterAll(async () => {
   for (const actor of [anna, celina]) {
     await withUser(db, actor, async (tx) => {
+      await tx.$executeRaw`DELETE FROM "public"."issue_attachments"`;
       await tx.$executeRaw`DELETE FROM "public"."inbox_items"`;
       await tx.$executeRaw`DELETE FROM "public"."comment_reactions"`;
       await tx.$executeRaw`DELETE FROM "public"."comment_mentions"`;
@@ -807,6 +809,145 @@ describe("RLS i uprawnienia roli aplikacji kivo_tasks_app", () => {
         anna,
         (tx) =>
           tx.$executeRaw`INSERT INTO "public"."inbox_items" ("id","organization_id","recipient_account_id","kind","issue_id","actor_account_id","created_at") VALUES (${uuidv7()}::uuid, ${acme}::uuid, ${anna.accountId}::uuid, 'ASSIGNED'::"public"."InboxItemKind", ${acmeIssueAId}::uuid, ${anna.accountId}::uuid, ${now})`,
+      ),
+    ).rejects.toThrow();
+
+    // ── Tabela etapu 2b: issue_attachments (RLS, złożone FK i ograniczenia CHECK) ──
+    const acmeAttachmentId = uuidv7();
+    const validSha256 = "a".repeat(64);
+    await withUser(db, anna, (tx) =>
+      tx.issueAttachment.create({
+        data: {
+          id: acmeAttachmentId,
+          organizationId: acme,
+          teamId: acmeTeamAId,
+          issueId: acmeIssueAId,
+          uploaderAccountId: anna.accountId,
+          fileName: "zrzut.png",
+          contentType: "image/png",
+          sizeBytes: 512,
+          sha256: validSha256,
+          storageKey: `organizations/${acme}/issues/${acmeIssueAId}/attachments/${acmeAttachmentId}`,
+        },
+      }),
+    );
+
+    // Brak kontekstu -> 0 wierszy; inna firma (Globex) -> 0 wierszy; ta sama firma (Bartek) -> 1 wiersz
+    expect(await db.issueAttachment.count()).toBe(0);
+    expect(await withUser(db, celina, (tx) => tx.issueAttachment.count())).toBe(0);
+    expect(await withUser(db, bartek, (tx) => tx.issueAttachment.count())).toBe(1);
+
+    // Zapis z cudzym organization_id odrzucony przez RLS WITH CHECK
+    await expect(
+      withUser(db, celina, (tx) =>
+        tx.issueAttachment.create({
+          data: {
+            id: uuidv7(),
+            organizationId: acme,
+            teamId: acmeTeamAId,
+            issueId: acmeIssueAId,
+            uploaderAccountId: celina.accountId,
+            fileName: "obcy.png",
+            contentType: "image/png",
+            sizeBytes: 128,
+            sha256: validSha256,
+            storageKey: `organizations/${acme}/issues/${acmeIssueAId}/attachments/${uuidv7()}`,
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+
+    // Złożony klucz obcy odrzuca wskazanie zadania z innej firmy lub innego zespołu
+    expectForeignKeyError(
+      await withUser(db, celina, (tx) =>
+        tx.issueAttachment.create({
+          data: {
+            id: uuidv7(),
+            organizationId: globex,
+            teamId: globexTeamId,
+            issueId: acmeIssueAId,
+            uploaderAccountId: celina.accountId,
+            fileName: "obca-firma.png",
+            contentType: "image/png",
+            sizeBytes: 128,
+            sha256: validSha256,
+            storageKey: `organizations/${globex}/issues/${acmeIssueAId}/attachments/${uuidv7()}`,
+          },
+        }),
+      ).catch((e) => e),
+    );
+    expectForeignKeyError(
+      await withUser(db, anna, (tx) =>
+        tx.issueAttachment.create({
+          data: {
+            id: uuidv7(),
+            organizationId: acme,
+            teamId: acmeTeamAId,
+            issueId: acmeIssueBId,
+            uploaderAccountId: anna.accountId,
+            fileName: "zly-zespol.png",
+            contentType: "image/png",
+            sizeBytes: 128,
+            sha256: validSha256,
+            storageKey: `organizations/${acme}/issues/${acmeIssueBId}/attachments/${uuidv7()}`,
+          },
+        }),
+      ).catch((e) => e),
+    );
+
+    // Ograniczenia CHECK: size_bytes > 0, dozwolony content_type i format sha256
+    await expect(
+      withUser(db, anna, (tx) =>
+        tx.issueAttachment.create({
+          data: {
+            id: uuidv7(),
+            organizationId: acme,
+            teamId: acmeTeamAId,
+            issueId: acmeIssueAId,
+            uploaderAccountId: anna.accountId,
+            fileName: "pusty.png",
+            contentType: "image/png",
+            sizeBytes: 0,
+            sha256: validSha256,
+            storageKey: `organizations/${acme}/issues/${acmeIssueAId}/attachments/${uuidv7()}`,
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withUser(db, anna, (tx) =>
+        tx.issueAttachment.create({
+          data: {
+            id: uuidv7(),
+            organizationId: acme,
+            teamId: acmeTeamAId,
+            issueId: acmeIssueAId,
+            uploaderAccountId: anna.accountId,
+            fileName: "ikona.svg",
+            contentType: "image/svg+xml",
+            sizeBytes: 64,
+            sha256: validSha256,
+            storageKey: `organizations/${acme}/issues/${acmeIssueAId}/attachments/${uuidv7()}`,
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withUser(db, anna, (tx) =>
+        tx.issueAttachment.create({
+          data: {
+            id: uuidv7(),
+            organizationId: acme,
+            teamId: acmeTeamAId,
+            issueId: acmeIssueAId,
+            uploaderAccountId: anna.accountId,
+            fileName: "zly-hash.bin",
+            contentType: "application/octet-stream",
+            sizeBytes: 64,
+            sha256: "INVALID",
+            storageKey: `organizations/${acme}/issues/${acmeIssueAId}/attachments/${uuidv7()}`,
+          },
+        }),
       ),
     ).rejects.toThrow();
   });

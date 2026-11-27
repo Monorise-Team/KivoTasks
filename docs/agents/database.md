@@ -55,6 +55,20 @@ Definiuje typy wyliczeniowe `IssueEventType` (`CREATED`, `TITLE_CHANGED`, `DESCR
 | `issue_subscribers` | `public` | Tak | Obserwujący zadanie (`PRIMARY KEY (issue_id, account_id)`). Złożony FK `(organization_id, issue_id) -> issues(organization_id, id)`. Automatycznie dodawani: twórca, osoba przypisana, komentujący i wspomniani.                                                                                                |
 | `inbox_items`       | `public` | Tak | Wpisy skrzynki powiadomień (`id` UUID v7, `kind`, `recipient_account_id <> actor_account_id`, `comment_id` opcjonalny, `read_at`, `archived_at`). Złożone FK `(organization_id, issue_id)` i `(organization_id, issue_id, comment_id)` oraz indeksy częściowe dla nieprzeczytanych i aktywnych wpisów odbiorcy. |
 
+### Migracja załączników etapu 2b (`20261127130000_attachments`)
+
+Rozszerza `IssueEventType` o `ATTACHMENT_ADDED` i `ATTACHMENT_REMOVED` oraz dodaje tabelę `issue_attachments` z wymuszonym RLS (`ENABLE` + `FORCE ROW LEVEL SECURITY`) i uprawnieniami dla roli `kivo_tasks_app`:
+
+| Tabela              | Schemat  | RLS | Przeznaczenie i najważniejsze ograniczenia                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------- | -------- | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `issue_attachments` | `public` | Tak | Metadane załączników do zadań (`id` UUID v7, `file_name` 1–255 znaków, `content_type` ograniczony CHECK do `image/png`, `image/jpeg`, `image/gif`, `image/webp` lub `application/octet-stream`, `size_bytes > 0`, `sha256` 64 małe znaki hex, unikalny `storage_key`, miękkie usuwanie `deleted_at`). Złożony FK `(organization_id, team_id, issue_id) -> issues(organization_id, team_id, id)` i indeks częściowy `issue_attachments_active_usage_idx` na `(organization_id) INCLUDE (size_bytes) WHERE deleted_at IS NULL`. |
+
+Limit miejsca firmy pilnowany jest atomowo w transakcji `withUser` przez:
+
+1. blokadę wiersza zadania `FOR UPDATE OF i` (gwarantuje, że zadanie nadal istnieje i nie jest usunięte),
+2. transakcyjną blokadę doradczą firmy `pg_advisory_xact_lock(hashtextextended('kivotasks:storage:' || organization_id, 0))`,
+3. sumę `SUM(size_bytes) WHERE deleted_at IS NULL` dla firmy (korzystającą z indeksu częściowego `issue_attachments_active_usage_idx`); przekroczenie limitu przerywa transakcję błędem `409 STORAGE_QUOTA_EXCEEDED`, a serwer usuwa zapisany obiekt z S3 best-effort.
+
 ## Funkcje pomocnicze RLS i `withUser`
 
 Migracja początkowa definiuje dwie stabilne funkcje SQL odczytujące zmienne lokalne transakcji:
@@ -79,6 +93,6 @@ Po stronie TypeScript zmienne ustawia wyłącznie `withUser(db, actor, fn)` w `p
 
 ## Testy bazy
 
-- `packages/db/test/rls.test.ts`: sprawdza uprawnienia roli `kivo_tasks_app`, wymuszone RLS (`relrowsecurity` i `relforcerowsecurity`) oraz izolację odczytu i zapisu na wszystkich 12 tabelach domenowych (etap 1a i etap 2a), równoległe atomowe przydzielanie numerów zadań bez kolizji i luk (także po wycofaniu transakcji), złożone klucze obce (odwołania między firmami, między zespołami i między zadaniami kończą się błędem klucza obcego), ograniczenia `CHECK` (zestaw emoji, zakaz powiadomienia dla sprawcy), indeks pary `RELATED`, tabele techniczne oraz odmowę dostępu do `public._prisma_migrations`.
-- `apps/web/test/tenant-isolation.test.ts`: sprawdza separację między firmami na wszystkich 12 tabelach domenowych (etapy 1a i 2a) przez `checkTenantIsolation` z `@monorise-team/testing` oraz równoległą numerację i blokady archiwizacji statusu przez `prismaIssuesStore`. Testy tras (`issues-api`, `teams-api`, `collaboration-api`) też działają na tej bazie, bez magazynu w pamięci.
-- Oba pliki wymagają działającego PostgreSQL (`pnpm db:up && pnpm db:migrate`).
+- `packages/db/test/rls.test.ts`: sprawdza uprawnienia roli `kivo_tasks_app`, wymuszone RLS (`relrowsecurity` i `relforcerowsecurity`) oraz izolację odczytu i zapisu na wszystkich 13 tabelach domenowych (etap 1a, 2a i 2b), równoległe atomowe przydzielanie numerów zadań bez kolizji i luk (także po wycofaniu transakcji), złożone klucze obce (odwołania między firmami, między zespołami i między zadaniami kończą się błędem klucza obcego), ograniczenia `CHECK` (zestaw emoji, zakaz powiadomienia dla sprawcy, `size_bytes > 0`, `content_type` i `sha256` załączników), indeks pary `RELATED`, tabele techniczne oraz odmowę dostępu do `public._prisma_migrations`.
+- `apps/web/test/tenant-isolation.test.ts`: sprawdza separację między firmami na wszystkich 13 tabelach domenowych (etapy 1a, 2a i 2b) przez `checkTenantIsolation` z `@monorise-team/testing` oraz równoległą numerację i blokady archiwizacji statusu przez `prismaIssuesStore`. Testy tras (`issues-api`, `teams-api`, `collaboration-api`, `attachments-api`) też działają na tej bazie, bez magazynu w pamięci.
+- Oba pliki wymagają działającego PostgreSQL (`pnpm db:up && pnpm db:migrate`); `attachments-api.test.ts` wymaga dodatkowo lokalnego MinIO (`pnpm storage:up`).

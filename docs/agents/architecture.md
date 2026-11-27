@@ -48,6 +48,17 @@ KivoTasks jest produktem Monorise do zarządzania zadaniami i projektami w przeg
   - Po odebraniu `organization.permissions.changed` natychmiast wywołuje `invalidatePermissionCache({ organizationId, accountId })`.
   - Ograniczenie: pamięć podręczna uprawnień działa w pamięci pojedynczego procesu; przed skalowaniem na wiele instancji potrzebna będzie wspólna pamięć podręczna albo kursor na instancję.
 
+## Magazyn plików i załączniki (etap 2b, ADR-0103)
+
+- **Magazyn zgodny z S3 (`src/server/file-storage.ts`, `@aws-sdk/client-s3`):** jedna instancja `S3Client` na proces (w `globalThis.__kivotasksS3Client`). Lokalnie używa MinIO w Dockerze (`pnpm storage:up`, porty `9036` API i `9037` konsola, zasobniki `kivo-tasks-attachments` i `kivo-tasks-attachments-test`), w produkcji Amazon S3 (pusty `KIVOTASKS_S3_ENDPOINT` i domyślny łańcuch poświadczeń AWS / rola IAM).
+- **Klucz obiektu:** wyłącznie `organizations/<organizationId>/issues/<issueId>/attachments/<attachmentId>` (nigdy nazwa pliku od użytkownika). Błędy sieci i S3 mapowane są na `503 INTERNAL_ERROR` („Magazyn plików jest chwilowo niedostępny”), a brak obiektu przy pobraniu na `404 NOT_FOUND`.
+- **Wyłącznie przez serwer KivoTasks:** pliki są wysyłane (`POST /api/v1/issues/{issueId}/attachments`) i strumieniowane (`GET /api/v1/attachments/{attachmentId}/content`) wyłącznie przez serwer API z pełnym sprawdzeniem uwierzytelnienia, dostępu do produktu, dostępu do zespołu i aktywności zadania przy każdym pobraniu.
+- **Rozpoznawanie typu i bezpieczeństwo nagłówków (`src/server/attachment-helpers.ts`):**
+  - Typ MIME jest ustalany wyłącznie po bajtach magicznych (PNG, JPEG, GIF87a/GIF89a, WebP); wszystko inne (w tym SVG, HTML, PDF) dostaje `application/octet-stream`.
+  - Nazwy plików przechodzą normalizację NFC, odcięcie ścieżki, usunięcie znaków sterujących i bidi, zbicie białych znaków, usunięcie wiodących kropek i bezpieczne przycięcie do 255 jednostek UTF-16 (domyślnie `plik`).
+  - Odpowiedź `/content` ustawia `Content-Disposition` (`inline` wyłącznie dla 4 formatów obrazów, `attachment` dla pozostałych, z `filename` ASCII i `filename*=UTF-8''` RFC 5987), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cross-Origin-Resource-Policy: same-origin`, `Cache-Control: private, no-cache` oraz `ETag: "<attachmentId>"` (`If-None-Match` -> `304`).
+- **Limity:** pojedynczy plik maks. `KIVOTASKS_ATTACHMENT_MAX_BYTES` (domyślnie `26214400`, 25 MB; w `apps/web/next.config.ts` ustawiono `experimental.proxyClientMaxBodySize: "27mb"`, powyżej limitu pliku z narzutem multipart), a limit firmy to `KIVOTASKS_STORAGE_QUOTA_BYTES` (domyślnie `1073741824`, 1 GB, do czasu limitów planów w Core, ADR-0058).
+
 ## Powłoka aplikacji i widoki zadań (`apps/web/src/app/app/`)
 
 - Korzysta wyłącznie z `@monorise-team/ui` i tokenów `@monorise-team/tokens` (ADR-0091), w tym mapowania nazwanych kolorów etykiet i statusów (`gray`, `blue`, `cyan`, `teal`, `green`, `yellow`, `orange`, `red`, `pink`, `purple`) na zmienne motywu i paletę Tailwind bez wpisanych na sztywno kolorów.
@@ -60,20 +71,20 @@ KivoTasks jest produktem Monorise do zarządzania zadaniami i projektami w przeg
   - `/teams/[key]`: lista zadań zespołu pogrupowana według kolejności kategorii statusów (`BACKLOG`, `UNSTARTED`, `STARTED`, `COMPLETED`, `CANCELED`), z filtrami w zapytaniu URL (status, osoba przypisana, etykieta, priorytet, wyszukiwanie, 5 trybów sortowania, „Pokaż zakończone”) i stronicowaniem kursorowym („Wczytaj więcej”),
   - `/teams/[key]/board`: tablica Kanban z jedną kolumną na aktywny status obiegu (`position`), przeciąganiem między kolumnami (`stateId`) i w kolumnie (`sortOrder` jako punkt środkowy sąsiadów), optymistyczną aktualizacją z wycofaniem przy błędzie oraz alternatywą klawiaturową w menu „Przenieś do…”,
   - `/teams/[key]/settings`: ustawienia zespołu dostępne z `manageTeams` (`SettingsLayout`: zmiana klucza zespołu, dodawanie/edycja/kolejność/archiwizacja statusów obiegu z zachowaniem komunikatów `409` z API oraz etykiety),
-  - `/issue/[identifier]`: szczegóły zadania z przyciskiem „Obserwuj” / „Przestań obserwować”, edycją tytułu i opisu, panelem bocznym (status, priorytet w kolejności Linear `0..4`, osoba przypisana z członków zespołu, wiele etykiet, termin, szacunek, zadanie nadrzędne), podzadaniami („Dodaj podzadanie”), powiązaniami (`BLOCKS`, `BLOCKED_BY`, `RELATED`, `DUPLICATE`), sekcją „Aktywność” (`IssueActivitySection`: historia zdarzeń i komentarze Markdown bez surowego HTML, linki z `rel="noopener noreferrer"`, edytor `CommentEditor` z autouzupełnianiem `@`, edycja/usuwanie komentarzy i reakcje emoji `👍 ❤️ 🎉 😄 👀 🚀`) oraz usuwaniem zadania z potwierdzeniem,
+  - `/issue/[identifier]`: szczegóły zadania z przyciskiem „Obserwuj” / „Przestań obserwować”, edycją tytułu i opisu (z przyciskiem „Załącz plik” i podglądem Markdown), sekcją „Załączniki” (`IssueAttachmentsSection`: lista z miniaturami obrazów powiększanymi w oknie dialogowym, pobieraniem, usuwaniem z potwierdzeniem, przyciskiem „Dodaj pliki”, przeciąganiem i upuszczaniem oraz paskiem limitu miejsca firmy), panelem bocznym (status, priorytet w kolejności Linear `0..4`, osoba przypisana z członków zespołu, wiele etykiet, termin, szacunek, zadanie nadrzędne), podzadaniami („Dodaj podzadanie”), powiązaniami (`BLOCKS`, `BLOCKED_BY`, `RELATED`, `DUPLICATE`), sekcją „Aktywność” (`IssueActivitySection`: historia zdarzeń w tym `ATTACHMENT_ADDED`/`ATTACHMENT_REMOVED` i komentarze Markdown bez surowego HTML, obrazy wyłącznie dla `/api/v1/attachments/<uuid>/content`, linki z `rel="noopener noreferrer"`, edytor `CommentEditor` z autouzupełnianiem `@`, przyciskiem „Załącz plik” i wklejaniem obrazów ze schowka, edycją/usuwaniem komentarzy i reakcjami emoji `👍 ❤️ 🎉 😄 👀 🚀`) oraz usuwaniem zadania z potwierdzeniem,
   - `/appearance`: ustawienia wyglądu (`AppearanceView` i `AppearanceControls`).
 - Skróty klawiszowe (`shortcuts.ts`, ignorowane w polach tekstowych i oknach modalnych): `⌘K` / `Ctrl+K` (paleta poleceń), `c` (nowe zadanie, gdy `writeIssues`), `/` (fokus pola szukania/filtra), `g n` (Skrzynka), `g i` (Moje zadania), `g t` (Zespoły), `g b` (tablica bieżącego zespołu), `g w` (Wygląd), na liście `j` / `k` (poruszanie po wierszach) i `Enter` (otwarcie zadania), `?` (pomoc skrótów).
-- Czysta logika widoków jest wydzielona do modułów `app-views.ts`, `issue-ui.ts`, `board-logic.ts`, `shortcuts.ts`, `markdown.ts`, `mention-autocomplete.ts` i `activity-ui.ts` oraz pokryta testami jednostkowymi w `apps/web/test/app-views.test.ts`, `apps/web/test/issue-views.test.ts` i `apps/web/test/collaboration-helpers.test.ts`.
+- Czysta logika widoków jest wydzielona do modułów `app-views.ts`, `issue-ui.ts`, `board-logic.ts`, `shortcuts.ts`, `markdown.ts`, `mention-autocomplete.ts`, `activity-ui.ts` i `attachments-ui.ts` oraz pokryta testami jednostkowymi w `apps/web/test/app-views.test.ts`, `apps/web/test/issue-views.test.ts`, `apps/web/test/collaboration-helpers.test.ts` i `apps/web/test/attachments-helpers.test.ts`.
 
 ## Polecenia robocze
 
 ```bash
-pnpm install && pnpm setup:env && pnpm db:up && pnpm db:migrate
+pnpm install && pnpm setup:env && pnpm db:up && pnpm db:migrate && pnpm storage:up
 pnpm permissions:register # rejestracja uprawnień i gotowych ról w MonoriseCore
 pnpm openapi              # generowanie openapi/kivotasks-api.json
-pnpm openapi:check        # weryfikacja aktualności openapi/kivotasks-api.json
+pnpm openapi:check        # sprawdza aktualność openapi/kivotasks-api.json
 pnpm dev                  # kivo.localhost:3500 i kivotasks.localhost:3500
-pnpm check                # pełne kontrole (wymaga lokalnego PostgreSQL)
+pnpm check                # pełne kontrole (wymaga lokalnego PostgreSQL i MinIO)
 pnpm test                 # testy we wszystkich paczkach
 pnpm shared:update        # aktualizacja paczek @monorise-team/* do jednej wersji
 ```

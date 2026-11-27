@@ -81,7 +81,7 @@ Zadania i projekty Monorise wyłącznie w przeglądarce, wzorowane na Linear (AD
 6. **Wygląd** tylko z `@monorise-team/ui` i tokenów `@monorise-team/tokens` (ADR-0091), bez kolorów wpisywanych na sztywno.
 7. **Jedna wersja**: po zmianie zależności `@monorise-team/*` używaj `pnpm shared:update`; `pnpm check:versions` musi przechodzić.
 8. **Teksty interfejsu** po polsku, bez półpauz i myślników jako separatorów zdań.
-9. **Zakres etapów i zgody**: nie wychodź poza bieżący etap bez zgłoszenia; `pnpm check` wymaga lokalnego PostgreSQL (`pnpm db:up && pnpm db:migrate`); zmiany w logowaniu, uprawnieniach i strukturze bazy scalamy dopiero po zgodzie właściciela projektu.
+9. **Zakres etapów i zgody**: nie wychodź poza bieżący etap bez zgłoszenia; `pnpm check` wymaga lokalnego PostgreSQL (`pnpm db:up && pnpm db:migrate`) i MinIO (`pnpm storage:up`); zmiany w logowaniu, uprawnieniach i strukturze bazy scalamy dopiero po zgodzie właściciela projektu.
 
 ## Szczegóły
 

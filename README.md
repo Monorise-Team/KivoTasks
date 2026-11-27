@@ -21,13 +21,13 @@ Pierwsza wersja KivoTasks powstaje w pięciu etapach opisanych w karcie produktu
   - **Etap 1b (interfejs, gotowy):** lista zadań zespołu (`/teams/[key]`) i „Moje zadania” (`/my-issues`) z filtrami w URL i stronicowaniem kursorowym, tablica Kanban (`/teams/[key]/board`) z przeciąganiem i menu klawiaturowym „Przenieś do…”, szczegóły zadania (`/issue/[identifier]`) z podzadaniami i relacjami, okno tworzenia zadania, lista i ustawienia zespołów (`/teams`, `/teams/[key]/settings`), paleta `⌘K` z wyszukiwaniem zadań oraz skróty klawiszowe (`c`, `/`, `g i`, `g t`, `g b`, `j`/`k`/`Enter`, `?`).
 - **Etap 2 (współpraca):**
   - **Etap 2a (komentarze, historia i skrzynka, gotowy):** komentarze Markdown z `@wzmiankami` członków zespołu (autouzupełnianie klawiaturą, walidacja przez Core Directory) i reakcjami emoji (`👍 ❤️ 🎉 😄 👀 🚀`), automatyczna historia zmian zadania (`issue_events`) połączona chronologicznie z komentarzami, obserwowanie zadań (automatyczne i ręczne) oraz skrzynka powiadomień (`/inbox`, licznik nieprzeczytanych w pasku bocznym, skrót `g n`, wpis „Skrzynka” w `⌘K`).
-  - **Etap 2b (załączniki, planowany):** załączniki plików do zadań i komentarzy.
+  - **Etap 2b (załączniki, gotowy):** załączniki plików w zadaniach przechowywane w magazynie zgodnym z S3 (lokalnie MinIO, w produkcji Amazon S3), wysyłane i pobierane wyłącznie przez serwer KivoTasks z rozpoznawaniem typu po zawartości, nagłówkami bezpieczeństwa, limitem pojedynczego pliku (25 MB) i limitem miejsca firmy (1 GB), podglądem obrazów oraz wstawianiem w opisie zadania i komentarzach.
 - **Etap 3 (planowanie):** projekty ponad zespołami, cykle, triage, własne widoki, oś czasu.
 - **Etap 4 (przegląd):** mapy drogowe, inicjatywy, statystyki, szablony zadań, SLA, archiwum, import i integracje.
 
 ## Uruchomienie lokalne
 
-Potrzebne: Node.js 24 (`.nvmrc`), pnpm 11, Docker (lokalna baza PostgreSQL) oraz działający lokalnie [MonoriseCore](https://github.com/Monorise-Team/MonoriseCore) (logowanie na `localhost:3100` i Core API na `localhost:3200`).
+Potrzebne: Node.js 24 (`.nvmrc`), pnpm 11, Docker (lokalna baza PostgreSQL i magazyn plików MinIO) oraz działający lokalnie [MonoriseCore](https://github.com/Monorise-Team/MonoriseCore) (logowanie na `localhost:3100` i Core API na `localhost:3200`).
 
 ```bash
 # raz: dostęp do paczek @monorise-team/* w GitHub Packages
@@ -37,7 +37,7 @@ export GITHUB_PACKAGES_TOKEN=$(gh auth token)
 # raz, w MonoriseCore: klient OAuth kivotasks-web i sekrety (apps/auth/.data/oauth-clients.json)
 pnpm oauth:seed
 
-pnpm install && pnpm setup:env && pnpm db:up && pnpm db:migrate
+pnpm install && pnpm setup:env && pnpm db:up && pnpm db:migrate && pnpm storage:up
 pnpm permissions:register # rejestracja uprawnień kivotasks.* i gotowych ról w MonoriseCore
 pnpm dev                  # http://kivo.localhost:3500 (strona i API) i http://kivotasks.localhost:3500 (aplikacja)
 ```
@@ -81,17 +81,17 @@ Następnie w Core API (`http://localhost:3200/core/v1`, z tokenem Ownera firmy) 
 ### Kanał zdarzeń Core i baza danych
 
 - **Kanał zdarzeń Core (ADR-0100):** `apps/web/src/instrumentation.ts` uruchamia odpytywanie `GET /core/v1/products/kivotasks/events` (`KIVOTASKS_EVENT_FEED_INTERVAL_MS`, domyślnie `5000` ms w `development`, `0` poza nim). Zdarzenie `organization.permissions.changed` natychmiast unieważnia pamięć podręczną uprawnień dla wskazanej firmy i konta.
-- **Baza danych:** PostgreSQL na porcie `5436` (kontener `kivo-tasks-database`). Zawiera tabele techniczne (`auth.sessions`, `public.event_feed_cursors`, `public.processed_events`), funkcje pomocnicze RLS (`public.current_organization_id()`, `public.current_account_id()`), tabele domenowe etapu 1a (`teams`, `workflow_states`, `labels`, `issues`, `issue_labels`, `issue_relations`) oraz tabele współpracy etapu 2a (`issue_comments`, `comment_mentions`, `comment_reactions`, `issue_events`, `issue_subscribers`, `inbox_items`) z wymuszonym RLS (`ENABLE` + `FORCE`), złożonymi kluczami obcymi i testami separacji firm.
+- **Baza danych i magazyn plików:** PostgreSQL na porcie `5436` (kontener `kivo-tasks-database`) oraz MinIO zgodny z S3 na portach `9036` (API) i `9037` (konsola, kontener `kivo-tasks-file-storage`, `pnpm storage:up`). Baza zawiera tabele techniczne (`auth.sessions`, `public.event_feed_cursors`, `public.processed_events`), funkcje pomocnicze RLS (`public.current_organization_id()`, `public.current_account_id()`), tabele domenowe etapu 1a (`teams`, `workflow_states`, `labels`, `issues`, `issue_labels`, `issue_relations`), tabele współpracy etapu 2a (`issue_comments`, `comment_mentions`, `comment_reactions`, `issue_events`, `issue_subscribers`, `inbox_items`) oraz tabelę załączników etapu 2b (`issue_attachments`) z wymuszonym RLS (`ENABLE` + `FORCE`), złożonymi kluczami obcymi i testami separacji firm.
 
 ## Polecenia i kontrole
 
 ```bash
-pnpm install && pnpm setup:env && pnpm db:up && pnpm db:migrate
+pnpm install && pnpm setup:env && pnpm db:up && pnpm db:migrate && pnpm storage:up
 pnpm permissions:register # rejestracja manifestu uprawnień i gotowych ról w MonoriseCore
 pnpm dev                  # lokalny serwer na kivo.localhost:3500 i kivotasks.localhost:3500
 pnpm openapi              # generuje openapi/kivotasks-api.json z kodu
 pnpm openapi:check        # sprawdza aktualność openapi/kivotasks-api.json
-pnpm check                # formatowanie, zgodność wersji, OpenAPI, lint, typy, testy i build (wymaga pnpm db:up)
+pnpm check                # formatowanie, zgodność wersji, OpenAPI, lint, typy, testy i build (wymaga pnpm db:up i pnpm storage:up)
 pnpm test                 # testy wszystkich paczek i aplikacji
 ```
 
