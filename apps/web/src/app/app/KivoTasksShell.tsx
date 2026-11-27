@@ -24,6 +24,7 @@ import {
   type CommandPaletteItem,
 } from "@monorise-team/ui";
 import {
+  Inbox,
   Kanban,
   Keyboard,
   ListTodo,
@@ -67,8 +68,18 @@ export function KivoTasksShell({ actionError, onDismissActionError, onFocusSearc
   const router = useRouter();
   const pathname = usePathname();
   const { resolvedMode, setAppearance } = useTheme();
-  const { client, me, teams, currentTeamKey, capabilityOverrides, busy, openCreateIssue, refreshSession, signOut } =
-    useKivoTasks();
+  const {
+    client,
+    me,
+    teams,
+    currentTeamKey,
+    capabilityOverrides,
+    inboxUnreadCount,
+    busy,
+    openCreateIssue,
+    refreshSession,
+    signOut,
+  } = useKivoTasks();
 
   const route = useMemo(() => parseAppRoute(pathname), [pathname]);
   const palette = useCommandPalette();
@@ -128,6 +139,10 @@ export function KivoTasksShell({ actionError, onDismissActionError, onFocusSearc
       {
         shortcut: "/",
         handler: handleSlashShortcut,
+      },
+      {
+        shortcut: "g n",
+        handler: () => navigate(APP_PATHS.inbox),
       },
       {
         shortcut: "g i",
@@ -224,6 +239,14 @@ export function KivoTasksShell({ actionError, onDismissActionError, onFocusSearc
     ];
 
     const goItems: CommandPaletteItem[] = [
+      {
+        id: "go-inbox",
+        label: "Skrzynka",
+        icon: <Inbox size={16} aria-hidden />,
+        shortcut: "g n",
+        keywords: ["skrzynka", "powiadomienia", "inbox", "wzmianki", "nieprzeczytane"],
+        onSelect: () => navigate(APP_PATHS.inbox),
+      },
       {
         id: "go-my-issues",
         label: "Moje zadania",
@@ -348,6 +371,14 @@ export function KivoTasksShell({ actionError, onDismissActionError, onFocusSearc
           onOpenPalette={() => palette.setOpen(true)}
         />
         <SidebarNav>
+          <SidebarLink
+            href={APP_PATHS.inbox}
+            icon={<Inbox aria-hidden />}
+            label="Skrzynka"
+            count={inboxUnreadCount > 0 ? inboxUnreadCount : undefined}
+            active={route.kind === "inbox"}
+            onClick={handleLinkClick(APP_PATHS.inbox)}
+          />
           <SidebarLink
             href={APP_PATHS.myIssues}
             icon={<ListTodo aria-hidden />}

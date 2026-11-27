@@ -314,6 +314,7 @@ describe("obsługa skrótów klawiszowych (czysta mapa skrótów)", () => {
   it("rozpoznaje wszystkie skróty nawigacji, tworzenia, wyszukiwania i listy", () => {
     expect(resolveShortcutAction("c", baseContext)).toEqual({ type: "new-issue" });
     expect(resolveShortcutAction("/", baseContext)).toEqual({ type: "focus-search" });
+    expect(resolveShortcutAction("g n", baseContext)).toEqual({ type: "go-inbox" });
     expect(resolveShortcutAction("g i", baseContext)).toEqual({ type: "go-my-issues" });
     expect(resolveShortcutAction("g t", baseContext)).toEqual({ type: "go-teams" });
     expect(resolveShortcutAction("g b", baseContext)).toEqual({ type: "go-board", teamKey: "MAG" });
@@ -351,6 +352,7 @@ describe("obsługa skrótów klawiszowych (czysta mapa skrótów)", () => {
     const allShortcuts = readOnlyHelp.flatMap((cat) => cat.items.map((item) => item.shortcut));
     expect(allShortcuts).not.toContain("c");
     expect(allShortcuts).not.toContain("g b");
+    expect(allShortcuts).toContain("g n");
     expect(allShortcuts).toContain("g i");
     expect(allShortcuts).toContain("g t");
   });

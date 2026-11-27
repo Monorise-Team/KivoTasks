@@ -33,7 +33,20 @@ import {
   cn,
   useToast,
 } from "@monorise-team/ui";
-import { ArrowLeft, ChevronRight, Copy, GitBranch, Link2, ListTodo, Plus, Tag, Trash2, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Bell,
+  BellOff,
+  ChevronRight,
+  Copy,
+  GitBranch,
+  Link2,
+  ListTodo,
+  Plus,
+  Tag,
+  Trash2,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
@@ -48,6 +61,7 @@ import {
   orderPaletteSearchResults,
 } from "../issue-ui";
 import { useKivoTasks } from "../KivoTasksContext";
+import { IssueActivitySection } from "./IssueActivitySection";
 import { ColorDot, LabelPill, PriorityIcon, StateIcon } from "./IssueBadges";
 
 export function IssueDetailView({ identifier }: { identifier: string }) {
@@ -104,9 +118,11 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
   } | null>(null);
   const [relationBusy, setRelationBusy] = useState(false);
 
-  // Usuwanie zadania
+  // Usuwanie zadania, obserwowanie i odświeżanie strumienia aktywności
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [subscriptionBusy, setSubscriptionBusy] = useState(false);
+  const [activityRevision, setActivityRevision] = useState(0);
 
   useEffect(() => {
     if (!canRead) return;
@@ -259,6 +275,7 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
         setDescriptionDraft(updated.description ?? "");
         setEstimateDraft(updated.estimate !== null ? String(updated.estimate) : "");
         bumpIssuesRevision();
+        setActivityRevision((prev) => prev + 1);
         if (successToast) {
           toast({ title: successToast, tone: "success" });
         }
@@ -447,6 +464,7 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
         type: relationType,
       });
       setIssue((prev) => (prev ? { ...prev, relations: [...prev.relations, created] } : prev));
+      setActivityRevision((prev) => prev + 1);
       setRelationFormOpen(false);
       setRelationQuery("");
       toast({
@@ -466,11 +484,33 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
     try {
       await client.issues.deleteRelation(issue.id, relationId);
       setIssue((prev) => (prev ? { ...prev, relations: prev.relations.filter((rel) => rel.id !== relationId) } : prev));
+      setActivityRevision((prev) => prev + 1);
       toast({ title: `Usunięto powiązanie z ${relatedIdentifier}`, tone: "neutral" });
     } catch (error) {
       setActionError(formatApiError(error, "Nie udało się usunąć powiązania."));
     } finally {
       setRelationBusy(false);
+    }
+  };
+
+  const handleToggleSubscription = async () => {
+    if (subscriptionBusy) return;
+    setSubscriptionBusy(true);
+    setActionError(null);
+    try {
+      if (issue.isSubscribed) {
+        await client.issues.unsubscribe(issue.id);
+        setIssue((prev) => (prev ? { ...prev, isSubscribed: false } : prev));
+        toast({ title: "Wyłączono obserwowanie zadania", tone: "neutral" });
+      } else {
+        await client.issues.subscribe(issue.id);
+        setIssue((prev) => (prev ? { ...prev, isSubscribed: true } : prev));
+        toast({ title: "Obserwujesz to zadanie", tone: "success" });
+      }
+    } catch (error) {
+      setActionError(formatApiError(error, "Nie udało się zmienić stanu obserwowania."));
+    } finally {
+      setSubscriptionBusy(false);
     }
   };
 
@@ -534,18 +574,31 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
           </Button>
         </nav>
 
-        {canWrite ? (
+        <div className="flex flex-wrap items-center gap-2">
           <Button
-            variant="ghost"
+            variant={issue.isSubscribed ? "secondary" : "ghost"}
             size="sm"
-            icon={<Trash2 aria-hidden />}
-            disabled={deleting}
-            className="text-danger hover:text-danger"
-            onClick={() => setDeleteOpen(true)}
+            icon={issue.isSubscribed ? <BellOff aria-hidden /> : <Bell aria-hidden />}
+            disabled={subscriptionBusy}
+            aria-pressed={issue.isSubscribed}
+            onClick={() => void handleToggleSubscription()}
           >
-            Usuń zadanie
+            {issue.isSubscribed ? "Przestań obserwować" : "Obserwuj"}
           </Button>
-        ) : null}
+
+          {canWrite ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<Trash2 aria-hidden />}
+              disabled={deleting}
+              className="text-danger hover:text-danger"
+              onClick={() => setDeleteOpen(true)}
+            >
+              Usuń zadanie
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {actionError ? <Banner tone="danger" message={actionError} onDismiss={() => setActionError(null)} /> : null}
@@ -897,6 +950,19 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
               </div>
             )}
           </section>
+
+          <Separator />
+
+          {/* Aktywność: historia zmian i komentarze */}
+          <IssueActivitySection
+            issueId={issue.id}
+            teamId={issue.teamId}
+            members={members}
+            memberNameByAccountId={memberNameByAccountId}
+            canManageTeam={canManage}
+            activityRevision={activityRevision}
+            onCommentCreated={() => setIssue((prev) => (prev ? { ...prev, isSubscribed: true } : prev))}
+          />
         </div>
 
         {/* Panel boczny szczegółów */}

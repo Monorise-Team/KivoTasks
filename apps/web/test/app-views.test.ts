@@ -48,6 +48,8 @@ describe("rozpoznawanie tras aplikacji i kluczy zespołów", () => {
     expect(normalizeAppPathname("/app/teams/MAG/board")).toBe("/teams/MAG/board");
 
     expect(parseAppRoute("/")).toEqual({ kind: "my-issues" });
+    expect(parseAppRoute("/inbox")).toEqual({ kind: "inbox" });
+    expect(parseAppRoute("/app/inbox")).toEqual({ kind: "inbox" });
     expect(parseAppRoute("/my-issues")).toEqual({ kind: "my-issues" });
     expect(parseAppRoute("/teams")).toEqual({ kind: "teams" });
     expect(parseAppRoute("/teams/mag")).toEqual({ kind: "team-issues", teamKey: "MAG" });

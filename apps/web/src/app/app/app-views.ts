@@ -11,6 +11,7 @@ export const VIEW_HASHES: Record<AppView, string> = {
 
 export const APP_PATHS = {
   root: "/",
+  inbox: "/inbox",
   myIssues: "/my-issues",
   teams: "/teams",
   appearance: "/appearance",
@@ -21,6 +22,7 @@ export const APP_PATHS = {
 } as const;
 
 export type AppRouteMatch =
+  | { kind: "inbox" }
   | { kind: "my-issues" }
   | { kind: "teams" }
   | { kind: "team-issues"; teamKey: string }
@@ -99,6 +101,9 @@ export function parseAppRoute(pathname: string): AppRouteMatch {
   const normalized = normalizeAppPathname(pathname).replace(/\/+$/, "") || "/";
   if (normalized === "/" || normalized === "/my-issues") {
     return { kind: "my-issues" };
+  }
+  if (normalized === "/inbox") {
+    return { kind: "inbox" };
   }
   if (normalized === "/teams") {
     return { kind: "teams" };

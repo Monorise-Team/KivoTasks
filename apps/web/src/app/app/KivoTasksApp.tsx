@@ -54,12 +54,22 @@ function KivoTasksContent({ children }: { children?: ReactNode }) {
   const [createDefaults, setCreateDefaults] = useState<CreateIssueDefaults>({});
   const [activeIssueTeamKey, setActiveIssueTeamKey] = useState<string | null>(null);
   const [issuesRevision, setIssuesRevision] = useState(0);
+  const [inboxUnreadCount, setInboxUnreadCount] = useState(0);
   const [searchFocusHolder, setSearchFocusHolder] = useState<{ fn: (() => void) | null }>({ fn: null });
 
   const routeTeamKey =
     route.kind === "team-issues" || route.kind === "team-board" || route.kind === "team-settings"
       ? route.teamKey
       : null;
+
+  const refreshInboxUnreadCount = useCallback(async () => {
+    try {
+      const result = await client.inbox.unreadCount();
+      setInboxUnreadCount(result.unreadCount);
+    } catch {
+      // Odświeżanie licznika nieprzeczytanych w tle działa best-effort
+    }
+  }, [client]);
 
   const loadTeams = useCallback(async () => {
     setTeamsLoading(true);
@@ -94,6 +104,7 @@ function KivoTasksContent({ children }: { children?: ReactNode }) {
       setAuthState("signed-in");
       if (!resolveAccessDenialMessage(profile.capabilities)) {
         void loadTeams();
+        void refreshInboxUnreadCount();
       }
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
@@ -104,7 +115,7 @@ function KivoTasksContent({ children }: { children?: ReactNode }) {
       setAuthError(formatApiError(error, "Nie udało się połączyć z serwerem KivoTasks."));
       setAuthState("error");
     }
-  }, [client, loadTeams]);
+  }, [client, loadTeams, refreshInboxUnreadCount]);
 
   const refreshSession = useCallback(async () => {
     setActionError(null);
@@ -114,7 +125,7 @@ function KivoTasksContent({ children }: { children?: ReactNode }) {
       setDeniedWriteTeamIds(new Set());
       setDeniedManageTeamIds(new Set());
       if (!resolveAccessDenialMessage(profile.capabilities)) {
-        await loadTeams();
+        await Promise.all([loadTeams(), refreshInboxUnreadCount()]);
       }
       setIssuesRevision((prev) => prev + 1);
     } catch (error) {
@@ -125,7 +136,7 @@ function KivoTasksContent({ children }: { children?: ReactNode }) {
       }
       setActionError(formatApiError(error, "Nie udało się odświeżyć danych."));
     }
-  }, [client, loadTeams]);
+  }, [client, loadTeams, refreshInboxUnreadCount]);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,6 +148,7 @@ function KivoTasksContent({ children }: { children?: ReactNode }) {
         setAuthState("signed-in");
         if (!resolveAccessDenialMessage(profile.capabilities)) {
           void loadTeams();
+          void refreshInboxUnreadCount();
         }
       },
       (error: unknown) => {
@@ -156,7 +168,32 @@ function KivoTasksContent({ children }: { children?: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [client, loadTeams]);
+  }, [client, loadTeams, refreshInboxUnreadCount]);
+
+  const hasAppAccess = Boolean(me && !resolveAccessDenialMessage(me.capabilities));
+
+  // Odpytywanie liczby nieprzeczytanych w skrzynce co 60 s oraz przy powrocie fokusu okna
+  useEffect(() => {
+    if (authState !== "signed-in" || !hasAppAccess) return;
+    const timer = window.setInterval(() => {
+      void refreshInboxUnreadCount();
+    }, 60_000);
+    const handleFocus = () => {
+      void refreshInboxUnreadCount();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void refreshInboxUnreadCount();
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [authState, hasAppAccess, refreshInboxUnreadCount]);
 
   const signOut = useCallback(async () => {
     setBusy(true);
@@ -164,6 +201,7 @@ function KivoTasksContent({ children }: { children?: ReactNode }) {
       await client.session.signOut();
       setMe(null);
       setTeams([]);
+      setInboxUnreadCount(0);
       setActionError(null);
       setAuthState("signed-out");
     } finally {
@@ -240,6 +278,7 @@ function KivoTasksContent({ children }: { children?: ReactNode }) {
       currentTeamKey,
       capabilityOverrides,
       issuesRevision,
+      inboxUnreadCount,
       busy,
       canRead: canReadIssues(me.capabilities),
       canWriteTeam: (teamId) => canWriteIssues(me.capabilities, teamId, capabilityOverrides),
@@ -253,6 +292,8 @@ function KivoTasksContent({ children }: { children?: ReactNode }) {
       setActiveIssueTeamKey,
       registerSearchFocus,
       bumpIssuesRevision,
+      refreshInboxUnreadCount,
+      setInboxUnreadCount,
       refreshSession,
       signOut,
     };
@@ -265,6 +306,7 @@ function KivoTasksContent({ children }: { children?: ReactNode }) {
     currentTeamKey,
     capabilityOverrides,
     issuesRevision,
+    inboxUnreadCount,
     busy,
     markTeamWriteDenied,
     markTeamManageDenied,
@@ -273,6 +315,7 @@ function KivoTasksContent({ children }: { children?: ReactNode }) {
     openCreateIssue,
     registerSearchFocus,
     bumpIssuesRevision,
+    refreshInboxUnreadCount,
     refreshSession,
     signOut,
   ]);
