@@ -41,6 +41,19 @@ Blokady przeciw wyścigom (READ COMMITTED):
 - Nowa relacja blokuje oba zadania `FOR SHARE` w swojej transakcji i zwraca `404`, gdy któreś usunięto w międzyczasie.
 - Kolumna `search_vector` zamienia interpunkcję ASCII na spacje, więc dzieli tekst tak samo jak zapytanie (tylko litery i cyfry).
 
+### Migracja współpracy etapu 2a (`20261127050000_collaboration`)
+
+Definiuje typy wyliczeniowe `IssueEventType` (`CREATED`, `TITLE_CHANGED`, `DESCRIPTION_CHANGED`, `STATE_CHANGED`, `PRIORITY_CHANGED`, `ASSIGNEE_CHANGED`, `LABELS_CHANGED`, `DUE_DATE_CHANGED`, `ESTIMATE_CHANGED`, `PARENT_CHANGED`, `RELATION_ADDED`, `RELATION_REMOVED`, `DELETED`) i `InboxItemKind` (`ASSIGNED`, `MENTIONED`, `COMMENTED`) oraz sześć tabel domenowych z wymuszonym RLS (`ENABLE` + `FORCE ROW LEVEL SECURITY`), uprawnieniami dla `kivo_tasks_app` i złożonymi kluczami obcymi:
+
+| Tabela              | Schemat  | RLS | Przeznaczenie i najważniejsze ograniczenia                                                                                                                                                                                                                                                                      |
+| ------------------- | -------- | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `issue_comments`    | `public` | Tak | Komentarze Markdown (`id` UUID v7, `body` 1–10 000 znaków, `edited_at`, miękkie usuwanie `deleted_at`). Złożony FK `(organization_id, team_id, issue_id) -> issues(organization_id, team_id, id)` blokuje odwołania między firmami i między zespołami.                                                          |
+| `comment_mentions`  | `public` | Tak | Zweryfikowane wzmianki członków zespołu w komentarzach (`PRIMARY KEY (comment_id, account_id)`). Złożony FK `(organization_id, comment_id) -> issue_comments(organization_id, id)`.                                                                                                                             |
+| `comment_reactions` | `public` | Tak | Reakcje emoji na komentarzach (`id` UUID v7, `CHECK (emoji IN ('👍', '❤️', '🎉', '😄', '👀', '🚀'))`, unikalne `(comment_id, account_id, emoji)`). Złożony FK `(organization_id, comment_id) -> issue_comments(organization_id, id)`.                                                                           |
+| `issue_events`      | `public` | Tak | Historia zmian zadania (`id` UUID v7, `type`, małe obiekty JSONB `before`/`after` — nigdy pełne treści opisu, jedynie flaga `hasDescription`). Złożony FK `(organization_id, team_id, issue_id) -> issues(organization_id, team_id, id)`. Zapisywane w tej samej transakcji.                                    |
+| `issue_subscribers` | `public` | Tak | Obserwujący zadanie (`PRIMARY KEY (issue_id, account_id)`). Złożony FK `(organization_id, issue_id) -> issues(organization_id, id)`. Automatycznie dodawani: twórca, osoba przypisana, komentujący i wspomniani.                                                                                                |
+| `inbox_items`       | `public` | Tak | Wpisy skrzynki powiadomień (`id` UUID v7, `kind`, `recipient_account_id <> actor_account_id`, `comment_id` opcjonalny, `read_at`, `archived_at`). Złożone FK `(organization_id, issue_id)` i `(organization_id, issue_id, comment_id)` oraz indeksy częściowe dla nieprzeczytanych i aktywnych wpisów odbiorcy. |
+
 ## Funkcje pomocnicze RLS i `withUser`
 
 Migracja początkowa definiuje dwie stabilne funkcje SQL odczytujące zmienne lokalne transakcji:
@@ -65,6 +78,6 @@ Po stronie TypeScript zmienne ustawia wyłącznie `withUser(db, actor, fn)` w `p
 
 ## Testy bazy
 
-- `packages/db/test/rls.test.ts`: sprawdza uprawnienia roli `kivo_tasks_app`, wymuszone RLS (`relrowsecurity` i `relforcerowsecurity`) oraz izolację odczytu i zapisu na wszystkich 6 tabelach domenowych, równoległe atomowe przydzielanie numerów zadań bez kolizji i luk (także po wycofaniu transakcji), złożone klucze obce (odwołania między firmami i między zespołami kończą się błędem klucza obcego), indeks pary `RELATED`, tabele techniczne oraz odmowę dostępu do `public._prisma_migrations`.
-- `apps/web/test/tenant-isolation.test.ts`: sprawdza separację między firmami na tabelach etapu 1a przez `checkTenantIsolation` z `@monorise-team/testing` oraz równoległą numerację i blokady archiwizacji statusu przez `prismaIssuesStore`. Testy tras (`issues-api`, `teams-api`) też działają na tej bazie, bez magazynu w pamięci.
+- `packages/db/test/rls.test.ts`: sprawdza uprawnienia roli `kivo_tasks_app`, wymuszone RLS (`relrowsecurity` i `relforcerowsecurity`) oraz izolację odczytu i zapisu na wszystkich 12 tabelach domenowych (etap 1a i etap 2a), równoległe atomowe przydzielanie numerów zadań bez kolizji i luk (także po wycofaniu transakcji), złożone klucze obce (odwołania między firmami, między zespołami i między zadaniami kończą się błędem klucza obcego), ograniczenia `CHECK` (zestaw emoji, zakaz powiadomienia dla sprawcy), indeks pary `RELATED`, tabele techniczne oraz odmowę dostępu do `public._prisma_migrations`.
+- `apps/web/test/tenant-isolation.test.ts`: sprawdza separację między firmami na wszystkich 12 tabelach domenowych (etapy 1a i 2a) przez `checkTenantIsolation` z `@monorise-team/testing` oraz równoległą numerację i blokady archiwizacji statusu przez `prismaIssuesStore`. Testy tras (`issues-api`, `teams-api`, `collaboration-api`) też działają na tej bazie, bez magazynu w pamięci.
 - Oba pliki wymagają działającego PostgreSQL (`pnpm db:up && pnpm db:migrate`).
