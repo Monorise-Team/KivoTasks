@@ -34,6 +34,10 @@ jobs:
       HUSKY: 0
       KIVOTASKS_TEST_DATABASE_URL: postgresql://kivo_tasks_owner:kivo_tasks_owner@localhost:5436/kivo_tasks
       KIVOTASKS_TEST_APP_DATABASE_URL: postgresql://kivo_tasks_app:kivo_tasks_app@localhost:5436/kivo_tasks
+      KIVOTASKS_TEST_S3_ENDPOINT: http://127.0.0.1:9036
+      KIVOTASKS_TEST_S3_BUCKET: kivo-tasks-attachments-test
+      KIVOTASKS_TEST_S3_ACCESS_KEY_ID: kivo_tasks_storage
+      KIVOTASKS_TEST_S3_SECRET_ACCESS_KEY: kivo_tasks_storage_local
       GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v5
@@ -44,6 +48,21 @@ jobs:
           cache: pnpm
       - name: Database roles
         run: psql "postgresql://postgres:postgres@localhost:5436/postgres" -v ON_ERROR_STOP=1 -f docker/postgres-init.sql
+      - name: File storage (MinIO)
+        run: |
+          docker run -d --name kivo-tasks-file-storage -p 9036:9000 \
+            -e MINIO_ROOT_USER=kivo_tasks_storage \
+            -e MINIO_ROOT_PASSWORD=kivo_tasks_storage_local \
+            cgr.dev/chainguard/minio:latest@sha256:b288eaa709ba2f799a39e9a8ceda71a08fabf90109b12c90badba9afff29485c \
+            server /data
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9036/minio/health/ready > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs kivo-tasks-file-storage
+          exit 1
       - run: pnpm install --frozen-lockfile
       - name: Migrations
         run: pnpm --filter @kivotasks/db exec prisma migrate deploy

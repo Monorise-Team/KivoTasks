@@ -14,6 +14,28 @@ const parseEventFeedIntervalMs = (value: string | undefined, fallback: number): 
   return Number.isSafeInteger(parsed) ? parsed : 0;
 };
 
+const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
+  if (value === undefined) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true") return true;
+  if (normalized === "false") return false;
+  return fallback;
+};
+
+const parsePositiveSafeInt = (value: string | undefined, fallback: number): number => {
+  if (value === undefined) return fallback;
+  const trimmed = value.trim();
+  if (!/^[1-9][0-9]*$/.test(trimmed)) return fallback;
+  const parsed = Number(trimmed);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+/** Domyślny maksymalny rozmiar pojedynczego załącznika: 25 MB. */
+export const DEFAULT_ATTACHMENT_MAX_BYTES = 26_214_400;
+
+/** Domyślny limit miejsca na załączniki firmy: 1 GB (do czasu limitów planów w Core, ADR-0058). */
+export const DEFAULT_STORAGE_QUOTA_BYTES = 1_073_741_824;
+
 /** Ustawienia serwera ze zmiennych środowiskowych (lokalnie `.env.local`, tworzy go `pnpm setup:env`). */
 export const config = {
   /** Baza kivo_tasks, rola aplikacji kivo_tasks_app (bez omijania RLS). */
@@ -61,5 +83,39 @@ export const config = {
   get eventFeedIntervalMs() {
     const fallback = process.env.NODE_ENV === "development" ? 5000 : 0;
     return parseEventFeedIntervalMs(process.env.KIVOTASKS_EVENT_FEED_INTERVAL_MS, fallback);
+  },
+
+  // ── Magazyn plików zgodny z S3 (etap 2b, ADR-0103) ────────────────────────────────────────────────
+  /** Adres punktu końcowego S3 (pusty = domyślny AWS S3; lokalnie http://127.0.0.1:9036 dla MinIO). */
+  get s3Endpoint() {
+    return process.env.KIVOTASKS_S3_ENDPOINT?.trim() || "";
+  },
+  /** Region S3 (domyślnie eu-central-1). */
+  get s3Region() {
+    return process.env.KIVOTASKS_S3_REGION?.trim() || "eu-central-1";
+  },
+  /** Nazwa zasobnika (bucket) na załączniki. */
+  get s3Bucket() {
+    return process.env.KIVOTASKS_S3_BUCKET?.trim() || "kivo-tasks-attachments";
+  },
+  /** Czy wymuszać adresowanie ścieżkowe S3 (`true` dla lokalnego MinIO, domyślnie `false`). */
+  get s3ForcePathStyle() {
+    return parseBoolean(process.env.KIVOTASKS_S3_FORCE_PATH_STYLE, false);
+  },
+  /** Statyczny klucz dostępu S3 (oba puste = domyślny łańcuch poświadczeń AWS, np. rola IAM). */
+  get s3AccessKeyId() {
+    return process.env.KIVOTASKS_S3_ACCESS_KEY_ID?.trim() || "";
+  },
+  /** Statyczny sekret dostępu S3 (oba puste = domyślny łańcuch poświadczeń AWS, np. rola IAM). */
+  get s3SecretAccessKey() {
+    return process.env.KIVOTASKS_S3_SECRET_ACCESS_KEY?.trim() || "";
+  },
+  /** Maksymalny rozmiar pojedynczego załącznika w bajtach (domyślnie 25 MB). */
+  get attachmentMaxBytes() {
+    return parsePositiveSafeInt(process.env.KIVOTASKS_ATTACHMENT_MAX_BYTES, DEFAULT_ATTACHMENT_MAX_BYTES);
+  },
+  /** Limit miejsca na załączniki jednej firmy w bajtach (domyślnie 1 GB, ADR-0058). */
+  get storageQuotaBytes() {
+    return parsePositiveSafeInt(process.env.KIVOTASKS_STORAGE_QUOTA_BYTES, DEFAULT_STORAGE_QUOTA_BYTES);
   },
 };

@@ -25,6 +25,7 @@
     "permissions:register": "pnpm --filter @kivotasks/web permissions:register",
     "db:up": "docker compose up -d database",
     "db:migrate": "pnpm --filter @kivotasks/db migrate:deploy && pnpm --filter @kivotasks/db migrate:deploy:test",
+    "storage:up": "docker compose up -d file-storage && node scripts/storage-setup.mjs",
     "shared:update": "node scripts/shared.mjs update",
     "prepare": "husky"
   },
