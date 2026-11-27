@@ -50,6 +50,10 @@
       "description": "Komentarze w zadaniach, wzmianki (@mentions) i reakcje emoji."
     },
     {
+      "name": "Attachments",
+      "description": "Załączniki plików w zadaniach oraz limit miejsca na pliki firmy."
+    },
+    {
       "name": "Inbox",
       "description": "Skrzynka powiadomień zalogowanej osoby w KivoTasks."
     },
@@ -59,6 +63,334 @@
     }
   ],
   "paths": {
+    "/api/v1/attachments/{attachmentId}": {
+      "get": {
+        "tags": [
+          "Attachments"
+        ],
+        "operationId": "getAttachment",
+        "summary": "Metadane załącznika",
+        "description": "Zwraca metadane aktywnego załącznika, jeśli zalogowana osoba ma prawo odczytu powiązanego zadania. Usunięte załączniki oraz załączniki z niedostępnych lub usuniętych zadań zwracają `404 NOT_FOUND`.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "attachmentId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator załącznika (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metadane załącznika.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueAttachmentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Attachments"
+        ],
+        "operationId": "deleteAttachment",
+        "summary": "Usunięcie załącznika",
+        "description": "Miękko usuwa załącznik (`deletedAt`), zapisuje zdarzenie `ATTACHMENT_REMOVED` w tej samej transakcji i usuwa obiekt z magazynu po zatwierdzeniu. Dozwolone dla osoby, która wysłała plik (jeśli nadal ma `kivotasks.issues.write` na zespole), albo osoby z `kivotasks.teams.manage` na zespole zadania.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "attachmentId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator załącznika (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Załącznik został usunięty."
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attachments/{attachmentId}/content": {
+      "get": {
+        "tags": [
+          "Attachments"
+        ],
+        "operationId": "getAttachmentContent",
+        "summary": "Pobranie zawartości załącznika",
+        "description": "Strumieniuje bajty załącznika z magazynu po sprawdzeniu dostępu do zadania przy każdym żądaniu. Ustawia nagłówki `Content-Disposition` (`inline` wyłącznie dla PNG/JPEG/GIF/WebP), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cross-Origin-Resource-Policy: same-origin`, `Cache-Control: private, no-cache` oraz `ETag` (z obsługą `If-None-Match` -> `304`).",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "attachmentId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator załącznika (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strumień bajtów załącznika.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "contentMediaType": "application/octet-stream"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "contentMediaType": "image/png"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "contentMediaType": "image/jpeg"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "type": "string",
+                  "contentMediaType": "image/gif"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "contentMediaType": "image/webp"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Zawartość załącznika nie zmieniła się (zgodny nagłówek If-None-Match)."
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -193,7 +525,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -263,7 +595,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -333,7 +665,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -447,7 +779,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -684,7 +1016,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -763,7 +1095,7 @@
             }
           },
           "409": {
-            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "description": "Konflikt stanu zasobu lub przekroczony limit miejsca firmy (CONFLICT).",
             "content": {
               "application/json": {
                 "schema": {
@@ -793,7 +1125,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -886,7 +1218,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -978,7 +1310,7 @@
             }
           },
           "409": {
-            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "description": "Konflikt stanu zasobu lub przekroczony limit miejsca firmy (CONFLICT).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1008,7 +1340,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1102,7 +1434,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1228,7 +1560,275 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/issues/{issueId}/attachments": {
+      "get": {
+        "tags": [
+          "Attachments"
+        ],
+        "operationId": "listIssueAttachments",
+        "summary": "Lista załączników zadania",
+        "description": "Zwraca aktywne załączniki zadania od najnowszych ze stronicowaniem kursorowym (`limit`, `cursor`, `meta.nextCursor`). Wymaga prawa odczytu zadania (zadania spoza zasięgu odczytu zwracają `404 NOT_FOUND`).",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zadania (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Liczba elementów na stronie (1-100, domyślnie 50).",
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Nieprzezroczysty kursor następnej strony z pola `meta.nextCursor`.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strona listy załączników zadania oraz `meta.nextCursor`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueAttachmentListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Attachments"
+        ],
+        "operationId": "uploadIssueAttachment",
+        "summary": "Wysłanie załącznika do zadania",
+        "description": "Przyjmuje dokładnie jeden plik w polu `file` (`multipart/form-data`), rozpoznaje typ MIME wyłącznie po bajtach magicznych (PNG, JPEG, GIF, WebP; pozostałe jako `application/octet-stream`), sprawdza limit rozmiaru pliku (`413`) oraz limit miejsca firmy (`409`) i zapisuje zdarzenie `ATTACHMENT_ADDED`. Wymaga `kivotasks.issues.write` na zespole zadania.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "description": "Identyfikator zadania (UUID).",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Formularz `multipart/form-data` zawierający dokładnie jedną część `file`.",
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "contentMediaType": "application/octet-stream",
+                    "description": "Plik do załączenia (maksymalny rozmiar określony przez serwer)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Zapisane metadane załącznika.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueAttachmentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED, PERMISSION_DENIED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Nie znaleziono zasobu (NOT_FOUND).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Konflikt stanu zasobu lub przekroczony limit miejsca firmy (STORAGE_QUOTA_EXCEEDED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Plik przekracza dopuszczalny rozmiar (PAYLOAD_TOO_LARGE).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Błędne dane wejściowe (VALIDATION_FAILED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1354,7 +1954,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1466,7 +2066,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1591,7 +2191,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1696,7 +2296,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1819,7 +2419,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1933,7 +2533,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2027,7 +2627,7 @@
             }
           },
           "409": {
-            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "description": "Konflikt stanu zasobu lub przekroczony limit miejsca firmy (CONFLICT).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2057,7 +2657,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2164,7 +2764,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2267,7 +2867,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2361,7 +2961,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2428,7 +3028,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2520,7 +3120,77 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/storage": {
+      "get": {
+        "tags": [
+          "Attachments"
+        ],
+        "operationId": "getStorageUsage",
+        "summary": "Zużycie miejsca na załączniki firmy",
+        "description": "Zwraca bieżące zużycie miejsca na aktywne załączniki w firmie zalogowanej osoby, limit firmy, limit pojedynczego pliku oraz stan (`OK`, `WARNING` od 80%, `FULL` od 100%). Wymaga wyłącznie dostępu do produktu KivoTasks.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bieżące zużycie miejsca na załączniki firmy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageUsageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Brak albo nieważny token dostępu albo wygasła sesja (UNAUTHENTICATED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Brak dostępu do produktu albo brak uprawnienia (PRODUCT_ACCESS_REQUIRED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Wewnętrzny błąd serwera (INTERNAL_ERROR).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2590,7 +3260,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2666,7 +3336,7 @@
             }
           },
           "409": {
-            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "description": "Konflikt stanu zasobu lub przekroczony limit miejsca firmy (CONFLICT).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2696,7 +3366,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2763,7 +3433,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2857,7 +3527,7 @@
             }
           },
           "409": {
-            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "description": "Konflikt stanu zasobu lub przekroczony limit miejsca firmy (CONFLICT).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2887,7 +3557,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2990,7 +3660,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -3082,7 +3752,7 @@
             }
           },
           "409": {
-            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "description": "Konflikt stanu zasobu lub przekroczony limit miejsca firmy (CONFLICT).",
             "content": {
               "application/json": {
                 "schema": {
@@ -3112,7 +3782,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -3217,7 +3887,7 @@
             }
           },
           "409": {
-            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "description": "Konflikt stanu zasobu lub przekroczony limit miejsca firmy (CONFLICT).",
             "content": {
               "application/json": {
                 "schema": {
@@ -3247,7 +3917,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -3352,7 +4022,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -3455,7 +4125,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -3558,7 +4228,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -3670,7 +4340,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -3775,7 +4445,7 @@
             }
           },
           "409": {
-            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "description": "Konflikt stanu zasobu lub przekroczony limit miejsca firmy (CONFLICT).",
             "content": {
               "application/json": {
                 "schema": {
@@ -3805,7 +4475,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -3890,7 +4560,7 @@
             }
           },
           "409": {
-            "description": "Konflikt stanu zasobu (CONFLICT).",
+            "description": "Konflikt stanu zasobu lub przekroczony limit miejsca firmy (CONFLICT).",
             "content": {
               "application/json": {
                 "schema": {
@@ -3920,7 +4590,7 @@
             }
           },
           "503": {
-            "description": "Usługa zależna (MonoriseCore) chwilowo niedostępna (INTERNAL_ERROR).",
+            "description": "Usługa zależna chwilowo niedostępna (INTERNAL_ERROR).",
             "content": {
               "application/json": {
                 "schema": {
@@ -4031,6 +4701,16 @@
         },
         "required": [
           "requestId"
+        ]
+      },
+      "AttachmentContentType": {
+        "type": "string",
+        "enum": [
+          "image/png",
+          "image/jpeg",
+          "image/gif",
+          "image/webp",
+          "application/octet-stream"
         ]
       },
       "Capabilities": {
@@ -4350,6 +5030,8 @@
           "NOT_FOUND",
           "VALIDATION_FAILED",
           "CONFLICT",
+          "PAYLOAD_TOO_LARGE",
+          "STORAGE_QUOTA_EXCEEDED",
           "RATE_LIMITED",
           "INTERNAL_ERROR"
         ]
@@ -4703,6 +5385,114 @@
           "data",
           "meta",
           "error"
+        ]
+      },
+      "IssueAttachment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "issueId": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "contentType": {
+            "$ref": "#/components/schemas/AttachmentContentType"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "uploader": {
+            "$ref": "#/components/schemas/IssueAttachmentUploader"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "contentUrl": {
+            "type": "string"
+          },
+          "inline": {
+            "type": "boolean"
+          },
+          "canDelete": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "issueId",
+          "fileName",
+          "contentType",
+          "sizeBytes",
+          "uploader",
+          "createdAt",
+          "contentUrl",
+          "inline",
+          "canDelete"
+        ]
+      },
+      "IssueAttachmentList": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/IssueAttachment"
+        }
+      },
+      "IssueAttachmentListResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/IssueAttachmentList"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiListMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "IssueAttachmentResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/IssueAttachment"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "IssueAttachmentUploader": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountId",
+          "name"
         ]
       },
       "IssueComment": {
@@ -5095,7 +5885,9 @@
           "PARENT_CHANGED",
           "RELATION_ADDED",
           "RELATION_REMOVED",
-          "DELETED"
+          "DELETED",
+          "ATTACHMENT_ADDED",
+          "ATTACHMENT_REMOVED"
         ]
       },
       "IssueLabelSummary": {
@@ -5646,6 +6438,67 @@
           "data",
           "meta",
           "error"
+        ]
+      },
+      "StorageUsage": {
+        "type": "object",
+        "properties": {
+          "usedBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "quotaBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "maxFileBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "usedRatio": {
+            "type": "number",
+            "minimum": 0
+          },
+          "state": {
+            "$ref": "#/components/schemas/StorageUsageState"
+          }
+        },
+        "required": [
+          "usedBytes",
+          "quotaBytes",
+          "maxFileBytes",
+          "usedRatio",
+          "state"
+        ]
+      },
+      "StorageUsageResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/StorageUsage"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "data",
+          "meta",
+          "error"
+        ]
+      },
+      "StorageUsageState": {
+        "type": "string",
+        "enum": [
+          "OK",
+          "WARNING",
+          "FULL"
         ]
       },
       "Team": {

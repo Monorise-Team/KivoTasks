@@ -23,6 +23,8 @@ import {
   InboxReadAllResult,
   InboxUnreadCount,
   IssueActivityList,
+  IssueAttachment,
+  IssueAttachmentList,
   IssueComment,
   IssueCommentList,
   IssueDetail,
@@ -38,6 +40,7 @@ import {
   PageLimit,
   ParentFilter,
   SearchIssuesResult,
+  StorageUsage,
   Team,
   TeamCandidatesList,
   TeamMembersList,
@@ -58,7 +61,7 @@ import { z } from "zod";
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export type RouteTag =
-  "System" | "Session" | "Teams" | "States" | "Labels" | "Issues" | "Comments" | "Inbox" | "Search";
+  "System" | "Session" | "Teams" | "States" | "Labels" | "Issues" | "Comments" | "Attachments" | "Inbox" | "Search";
 
 /**
  * Wymagane uwierzytelnienie trasy:
@@ -81,12 +84,13 @@ export const TAGS: readonly TagDefinition[] = [
   { name: "Labels", description: "Etykiety zadań przypisane do zespołu." },
   { name: "Issues", description: "Zadania, podzadania, relacje, historia aktywności i obserwowanie zadań." },
   { name: "Comments", description: "Komentarze w zadaniach, wzmianki (@mentions) i reakcje emoji." },
+  { name: "Attachments", description: "Załączniki plików w zadaniach oraz limit miejsca na pliki firmy." },
   { name: "Inbox", description: "Skrzynka powiadomień zalogowanej osoby w KivoTasks." },
   { name: "Search", description: "Szybkie wyszukiwanie zadań po identyfikatorze i treści." },
 ];
 
 export type SuccessStatus = 200 | 201 | 204;
-export type ErrorStatus = 401 | 403 | 404 | 409 | 422 | 429 | 500 | 503;
+export type ErrorStatus = 401 | 403 | 404 | 409 | 413 | 422 | 429 | 500 | 503;
 export type RouteErrors = Partial<Record<ErrorStatus, readonly ErrorCode[]>>;
 
 export interface ParameterDefinition {
@@ -117,13 +121,22 @@ export interface RouteDefinition {
   /** Nazwa i schemat treści żądania (dla POST/PUT/PATCH). */
   requestBodySchemaName?: string;
   requestBodySchema?: z.ZodType;
+  /** Typ treści żądania (domyślnie `application/json`; np. `multipart/form-data` dla plików). */
+  requestBodyContentType?: "application/json" | "multipart/form-data";
+  /** Surowy schemat treści żądania (np. dla `multipart/form-data`, gdy brak schematu Zod). */
+  requestBodyRawSchema?: Record<string, unknown>;
   requestBodyRequired?: boolean;
   requestBodyDescription?: string;
-  /** Nazwa schematu danych w `components/schemas` (brak przy 204). */
+  /** Nazwa schematu danych w `components/schemas` (brak przy 204 i odpowiedziach binarnych). */
   dataSchemaName?: string;
   dataSchema?: z.ZodType;
   /** Nazwa schematu odpowiedzi w `components/schemas` dla odpowiedzi z kopertą (np. `MeResponse`). */
   responseSchemaName?: string;
+  /** Czy odpowiedź sukcesu jest strumieniem binarnym (poza kopertą JSON). */
+  binaryResponse?: {
+    readonly contentTypes: readonly string[];
+    readonly notModifiedDescription?: string;
+  };
   responseDescription: string;
   errors: RouteErrors;
 }
@@ -194,6 +207,14 @@ const INBOX_ITEM_ID_PARAM: ParameterDefinition = {
   in: "path",
   required: true,
   description: "Identyfikator wpisu w skrzynce powiadomień (UUID).",
+  schema: UuidSchema,
+};
+
+const ATTACHMENT_ID_PARAM: ParameterDefinition = {
+  name: "attachmentId",
+  in: "path",
+  required: true,
+  description: "Identyfikator załącznika (UUID).",
   schema: UuidSchema,
 };
 
@@ -1274,6 +1295,181 @@ export const ROUTES = {
       401: ["UNAUTHENTICATED"],
       403: ["PRODUCT_ACCESS_REQUIRED", "PERMISSION_DENIED"],
       422: ["VALIDATION_FAILED"],
+      500: ["INTERNAL_ERROR"],
+      503: ["INTERNAL_ERROR"],
+    },
+  },
+
+  // ── Załączniki i limit miejsca firmy (etap 2b) ────────────────────────────
+
+  listIssueAttachments: {
+    method: "GET",
+    path: `${API_PREFIX}/issues/{issueId}/attachments`,
+    operationId: "listIssueAttachments",
+    tag: "Attachments",
+    summary: "Lista załączników zadania",
+    description:
+      "Zwraca aktywne załączniki zadania od najnowszych ze stronicowaniem kursorowym (`limit`, `cursor`, `meta.nextCursor`). " +
+      "Wymaga prawa odczytu zadania (zadania spoza zasięgu odczytu zwracają `404 NOT_FOUND`).",
+    auth: "user",
+    successStatus: 200,
+    envelope: true,
+    paginated: true,
+    parameters: [ISSUE_UUID_PARAM, PAGE_LIMIT_PARAM, PAGE_CURSOR_PARAM],
+    dataSchemaName: "IssueAttachmentList",
+    dataSchema: IssueAttachmentList,
+    responseSchemaName: "IssueAttachmentListResponse",
+    responseDescription: "Strona listy załączników zadania oraz `meta.nextCursor`.",
+    errors: {
+      401: ["UNAUTHENTICATED"],
+      403: ["PRODUCT_ACCESS_REQUIRED", "PERMISSION_DENIED"],
+      404: ["NOT_FOUND"],
+      422: ["VALIDATION_FAILED"],
+      500: ["INTERNAL_ERROR"],
+      503: ["INTERNAL_ERROR"],
+    },
+  },
+  uploadIssueAttachment: {
+    method: "POST",
+    path: `${API_PREFIX}/issues/{issueId}/attachments`,
+    operationId: "uploadIssueAttachment",
+    tag: "Attachments",
+    summary: "Wysłanie załącznika do zadania",
+    description:
+      "Przyjmuje dokładnie jeden plik w polu `file` (`multipart/form-data`), rozpoznaje typ MIME wyłącznie po bajtach " +
+      "magicznych (PNG, JPEG, GIF, WebP; pozostałe jako `application/octet-stream`), sprawdza limit rozmiaru pliku (`413`) " +
+      "oraz limit miejsca firmy (`409`) i zapisuje zdarzenie `ATTACHMENT_ADDED`. Wymaga `kivotasks.issues.write` na zespole zadania.",
+    auth: "user",
+    successStatus: 201,
+    envelope: true,
+    parameters: [ISSUE_UUID_PARAM],
+    requestBodyContentType: "multipart/form-data",
+    requestBodyRawSchema: {
+      type: "object",
+      required: ["file"],
+      properties: {
+        file: {
+          type: "string",
+          contentMediaType: "application/octet-stream",
+          description: "Plik do załączenia (maksymalny rozmiar określony przez serwer).",
+        },
+      },
+    },
+    requestBodyRequired: true,
+    requestBodyDescription: "Formularz `multipart/form-data` zawierający dokładnie jedną część `file`.",
+    dataSchemaName: "IssueAttachment",
+    dataSchema: IssueAttachment,
+    responseSchemaName: "IssueAttachmentResponse",
+    responseDescription: "Zapisane metadane załącznika.",
+    errors: {
+      401: ["UNAUTHENTICATED"],
+      403: ["PRODUCT_ACCESS_REQUIRED", "PERMISSION_DENIED"],
+      404: ["NOT_FOUND"],
+      409: ["STORAGE_QUOTA_EXCEEDED"],
+      413: ["PAYLOAD_TOO_LARGE"],
+      422: ["VALIDATION_FAILED"],
+      500: ["INTERNAL_ERROR"],
+      503: ["INTERNAL_ERROR"],
+    },
+  },
+  getAttachment: {
+    method: "GET",
+    path: `${API_PREFIX}/attachments/{attachmentId}`,
+    operationId: "getAttachment",
+    tag: "Attachments",
+    summary: "Metadane załącznika",
+    description:
+      "Zwraca metadane aktywnego załącznika, jeśli zalogowana osoba ma prawo odczytu powiązanego zadania. " +
+      "Usunięte załączniki oraz załączniki z niedostępnych lub usuniętych zadań zwracają `404 NOT_FOUND`.",
+    auth: "user",
+    successStatus: 200,
+    envelope: true,
+    parameters: [ATTACHMENT_ID_PARAM],
+    dataSchemaName: "IssueAttachment",
+    dataSchema: IssueAttachment,
+    responseSchemaName: "IssueAttachmentResponse",
+    responseDescription: "Metadane załącznika.",
+    errors: {
+      401: ["UNAUTHENTICATED"],
+      403: ["PRODUCT_ACCESS_REQUIRED", "PERMISSION_DENIED"],
+      404: ["NOT_FOUND"],
+      422: ["VALIDATION_FAILED"],
+      500: ["INTERNAL_ERROR"],
+      503: ["INTERNAL_ERROR"],
+    },
+  },
+  getAttachmentContent: {
+    method: "GET",
+    path: `${API_PREFIX}/attachments/{attachmentId}/content`,
+    operationId: "getAttachmentContent",
+    tag: "Attachments",
+    summary: "Pobranie zawartości załącznika",
+    description:
+      "Strumieniuje bajty załącznika z magazynu po sprawdzeniu dostępu do zadania przy każdym żądaniu. " +
+      "Ustawia nagłówki `Content-Disposition` (`inline` wyłącznie dla PNG/JPEG/GIF/WebP), `X-Content-Type-Options: nosniff`, " +
+      "`Content-Security-Policy: default-src 'none'; sandbox`, `Cross-Origin-Resource-Policy: same-origin`, " +
+      "`Cache-Control: private, no-cache` oraz `ETag` (z obsługą `If-None-Match` -> `304`).",
+    auth: "user",
+    successStatus: 200,
+    envelope: false,
+    parameters: [ATTACHMENT_ID_PARAM],
+    binaryResponse: {
+      contentTypes: ["application/octet-stream", "image/png", "image/jpeg", "image/gif", "image/webp"],
+      notModifiedDescription: "Zawartość załącznika nie zmieniła się (zgodny nagłówek If-None-Match).",
+    },
+    responseDescription: "Strumień bajtów załącznika.",
+    errors: {
+      401: ["UNAUTHENTICATED"],
+      403: ["PRODUCT_ACCESS_REQUIRED", "PERMISSION_DENIED"],
+      404: ["NOT_FOUND"],
+      422: ["VALIDATION_FAILED"],
+      500: ["INTERNAL_ERROR"],
+      503: ["INTERNAL_ERROR"],
+    },
+  },
+  deleteAttachment: {
+    method: "DELETE",
+    path: `${API_PREFIX}/attachments/{attachmentId}`,
+    operationId: "deleteAttachment",
+    tag: "Attachments",
+    summary: "Usunięcie załącznika",
+    description:
+      "Miękko usuwa załącznik (`deletedAt`), zapisuje zdarzenie `ATTACHMENT_REMOVED` w tej samej transakcji i usuwa " +
+      "obiekt z magazynu po zatwierdzeniu. Dozwolone dla osoby, która wysłała plik (jeśli nadal ma `kivotasks.issues.write` " +
+      "na zespole), albo osoby z `kivotasks.teams.manage` na zespole zadania.",
+    auth: "user",
+    successStatus: 204,
+    envelope: false,
+    parameters: [ATTACHMENT_ID_PARAM],
+    responseDescription: "Załącznik został usunięty.",
+    errors: {
+      401: ["UNAUTHENTICATED"],
+      403: ["PRODUCT_ACCESS_REQUIRED", "PERMISSION_DENIED"],
+      404: ["NOT_FOUND"],
+      422: ["VALIDATION_FAILED"],
+      500: ["INTERNAL_ERROR"],
+      503: ["INTERNAL_ERROR"],
+    },
+  },
+  getStorageUsage: {
+    method: "GET",
+    path: `${API_PREFIX}/storage`,
+    operationId: "getStorageUsage",
+    tag: "Attachments",
+    summary: "Zużycie miejsca na załączniki firmy",
+    description:
+      "Zwraca bieżące zużycie miejsca na aktywne załączniki w firmie zalogowanej osoby, limit firmy, limit pojedynczego pliku " +
+      "oraz stan (`OK`, `WARNING` od 80%, `FULL` od 100%). Wymaga wyłącznie dostępu do produktu KivoTasks.",
+    auth: "user",
+    successStatus: 200,
+    envelope: true,
+    dataSchemaName: "StorageUsage",
+    dataSchema: StorageUsage,
+    responseSchemaName: "StorageUsageResponse",
+    responseDescription: "Bieżące zużycie miejsca na załączniki firmy.",
+    errors: {
+      401: ["UNAUTHENTICATED"],
+      403: ["PRODUCT_ACCESS_REQUIRED"],
       500: ["INTERNAL_ERROR"],
       503: ["INTERNAL_ERROR"],
     },

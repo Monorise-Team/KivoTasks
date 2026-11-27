@@ -159,7 +159,7 @@ export function buildCommentExcerpt(
   );
   const plain = withMentions
     .replace(FENCED_CODE_BLOCK_REGEX, (block) => block.replace(/^```[^\n]*\n?/, "").replace(/```$/, ""))
-    .replace(/(?<!@)\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/(?<!@)!?\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/[*_~`>#]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
