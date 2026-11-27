@@ -18,6 +18,7 @@ afterAll(async () => {
 
 async function cleanupTenant(actor: Actor): Promise<void> {
   await withUser(getDb(), actor, async (tx) => {
+    await tx.$executeRaw`DELETE FROM "public"."issue_attachments"`;
     await tx.$executeRaw`DELETE FROM "public"."inbox_items"`;
     await tx.$executeRaw`DELETE FROM "public"."comment_reactions"`;
     await tx.$executeRaw`DELETE FROM "public"."comment_mentions"`;
@@ -103,6 +104,18 @@ describe("Separacja firm w bazie danych (checkTenantIsolation, ADR-0037)", () =>
           commentId: comment.id,
           emoji: "👍",
         });
+        const attachmentId = uuidv7();
+        await prismaIssuesStore.createIssueAttachment(actor, {
+          id: attachmentId,
+          issueId: issue1.id,
+          teamId: team.id,
+          fileName: "zrzut.png",
+          contentType: "image/png",
+          sizeBytes: 512,
+          sha256: "a".repeat(64),
+          storageKey: `organizations/${tenantId}/issues/${issue1.id}/attachments/${attachmentId}`,
+          quotaBytes: 1_000_000,
+        });
       },
       readAsTenant: async (tenantId) => {
         const actor = actorFor(tenantId);
@@ -130,6 +143,9 @@ describe("Separacja firm w bazie danych (checkTenantIsolation, ADR-0037)", () =>
           `),
           ...(await tx.$queryRaw<{ id: string; organizationId: string }[]>`
             SELECT "id"::text AS "id", "organization_id"::text AS "organizationId" FROM "public"."inbox_items"
+          `),
+          ...(await tx.$queryRaw<{ id: string; organizationId: string }[]>`
+            SELECT "id"::text AS "id", "organization_id"::text AS "organizationId" FROM "public"."issue_attachments"
           `),
         ]);
         return allRows;

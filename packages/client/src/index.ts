@@ -21,6 +21,8 @@ import {
   type InboxUnreadCount,
   type IssueActivityItem,
   type IssueActivityQuery,
+  type IssueAttachment,
+  type IssueAttachmentsQuery,
   type IssueComment,
   type IssueCommentsQuery,
   type IssueDetail,
@@ -33,6 +35,7 @@ import {
   type Me,
   type PaginatedResult,
   type SearchIssuesResult,
+  type StorageUsage,
   type Team,
   type TeamCandidatesList,
   type TeamMembersList,
@@ -73,6 +76,11 @@ export type KivoTasksClient = ReturnType<typeof createClient>;
 
 function encodeSegment(segment: string): string {
   return encodeURIComponent(segment);
+}
+
+/** Zwraca względny lub pełny adres pobierania zawartości załącznika. */
+export function attachmentContentUrl(attachmentId: string, baseUrl = ""): string {
+  return `${baseUrl}${API_PREFIX}/attachments/${encodeSegment(attachmentId)}/content`;
 }
 
 function buildIssueListQuery(query?: IssueListQuery): string {
@@ -116,14 +124,17 @@ function buildInboxQuery(query?: InboxListQuery): string {
 export function createClient({ baseUrl = "", getToken, fetch: fetchImpl = fetch }: ClientOptions = {}) {
   async function send(method: string, path: string, body?: unknown): Promise<Response> {
     const headers: Record<string, string> = { Accept: "application/json" };
-    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+    if (body !== undefined && !isFormData) {
+      headers["Content-Type"] = "application/json";
+    }
     const token = getToken ? await getToken() : null;
     if (token) headers.Authorization = `Bearer ${token}`;
     try {
       return await fetchImpl(`${baseUrl}${API_PREFIX}${path}`, {
         method,
         headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
+        body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
         credentials: getToken ? "omit" : "same-origin",
       });
     } catch {
@@ -247,6 +258,24 @@ export function createClient({ baseUrl = "", getToken, fetch: fetchImpl = fetch 
         request<IssueSubscription>("PUT", `/issues/${encodeSegment(issueId)}/subscription`),
       unsubscribe: (issueId: string) => requestVoid("DELETE", `/issues/${encodeSegment(issueId)}/subscription`),
     },
+    attachments: {
+      list: (issueId: string, query?: IssueAttachmentsQuery) =>
+        requestPaginated<IssueAttachment>(
+          "GET",
+          `/issues/${encodeSegment(issueId)}/attachments${buildCursorQuery(query)}`,
+        ),
+      upload: (issueId: string, file: Blob, fileName: string) => {
+        const formData = new FormData();
+        formData.append("file", file, fileName);
+        return request<IssueAttachment>("POST", `/issues/${encodeSegment(issueId)}/attachments`, formData);
+      },
+      get: (attachmentId: string) => request<IssueAttachment>("GET", `/attachments/${encodeSegment(attachmentId)}`),
+      delete: (attachmentId: string) => requestVoid("DELETE", `/attachments/${encodeSegment(attachmentId)}`),
+      contentUrl: (attachmentId: string) => attachmentContentUrl(attachmentId, baseUrl),
+    },
+    storage: {
+      get: () => request<StorageUsage>("GET", "/storage"),
+    },
     inbox: {
       list: (query?: InboxListQuery) => requestPaginated<InboxItem>("GET", `/inbox${buildInboxQuery(query)}`),
       unreadCount: () => request<InboxUnreadCount>("GET", "/inbox/unread-count"),
@@ -261,6 +290,7 @@ export function createClient({ baseUrl = "", getToken, fetch: fetchImpl = fetch 
 }
 
 export {
+  ATTACHMENT_CONTENT_TYPES,
   COLOR_TOKENS,
   COMMENT_REACTION_EMOJIS,
   DEFAULT_WORKFLOW_STATES,
@@ -273,7 +303,9 @@ export {
   ISSUE_RELATION_TYPES,
   ISSUE_RELATION_VIEW_TYPES,
   ISSUE_SORT_OPTIONS,
+  STORAGE_USAGE_STATES,
   WORKFLOW_STATE_CATEGORIES,
+  type AttachmentContentType,
   type Capabilities,
   type ColorToken,
   type CommentReactionEmoji,
@@ -297,6 +329,10 @@ export {
   type IssueActivityEventItem,
   type IssueActivityItem,
   type IssueActivityQuery,
+  type IssueAttachment,
+  type IssueAttachmentEventPayload,
+  type IssueAttachmentUploader,
+  type IssueAttachmentsQuery,
   type IssueComment,
   type IssueCommentsQuery,
   type IssueDetail,
@@ -321,6 +357,8 @@ export {
   type Me,
   type PaginatedResult,
   type SearchIssuesResult,
+  type StorageUsage,
+  type StorageUsageState,
   type Team,
   type TeamCandidate,
   type TeamCandidatesList,

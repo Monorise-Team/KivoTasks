@@ -1,6 +1,7 @@
 import "server-only";
 import {
   DEFAULT_WORKFLOW_STATES,
+  type AttachmentContentType,
   type ColorToken,
   type CommentReactionsResult,
   type InboxItem,
@@ -51,7 +52,9 @@ import {
   type IssueCursorPayload,
 } from "./issue-helpers";
 import type {
+  AttachmentRecord,
   CommentLocation,
+  CreateIssueAttachmentStoreInput,
   CreateIssueStoreInput,
   IssueLocation,
   IssueLookup,
@@ -59,6 +62,7 @@ import type {
   IssuesStore,
   ListInboxStoreParams,
   ListIssueActivityStoreParams,
+  ListIssueAttachmentsStoreParams,
   ListIssueCommentsStoreParams,
   ListIssuesStoreParams,
   SearchIssuesStoreParams,
@@ -1649,9 +1653,9 @@ export const prismaIssuesStore: IssuesStore = {
         where: { id: issueId, deletedAt: null },
         select: { teamId: true, number: true, team: { select: { key: true } } },
       });
-      if (!target) return false;
-      // Pod blokadą hierarchii: podzadania stają się zadaniami głównymi, a usunięte zadanie traci rodzica,
-      // więc nie zostają odwołania do usuniętych zadań ani ukryte cykle
+      if (!target) return null;
+      // Pod blokadą hierarchii: podzadania stają się zadaniami głównymi (nie są usuwane),
+      // a usunięte zadanie traci rodzica i zwalnia swoje aktywne załączniki w kolejności blokad issues -> issue_attachments.
       await lockTeamIssueHierarchy(tx, target.teamId);
       const now = new Date();
       const children = await tx.issue.findMany({
@@ -1662,7 +1666,15 @@ export const prismaIssuesStore: IssuesStore = {
         where: { id: issueId, deletedAt: null },
         data: { deletedAt: now, parentId: null },
       });
-      if (updated.count === 0) return false;
+      if (updated.count === 0) return null;
+
+      const deletedAttachments = await tx.$queryRaw<{ storageKey: string }[]>`
+        UPDATE "public"."issue_attachments"
+        SET "deleted_at" = ${now}
+        WHERE "issue_id" = ${issueId}::uuid
+          AND "deleted_at" IS NULL
+        RETURNING "storage_key" AS "storageKey"
+      `;
 
       const eventsToInsert: PendingIssueEventRow[] = [];
       if (children.length > 0) {
@@ -1695,7 +1707,7 @@ export const prismaIssuesStore: IssuesStore = {
         createdAt: now,
       });
       await insertIssueEvents(tx, eventsToInsert);
-      return true;
+      return { deletedAttachmentKeys: deletedAttachments.map((row) => row.storageKey) };
     });
   },
 
@@ -2631,6 +2643,330 @@ export const prismaIssuesStore: IssuesStore = {
           AND ${teamFilter}
       `;
       return updated;
+    });
+  },
+
+  // ── Załączniki i zużycie miejsca firmy (etap 2b) ──────────────────────────
+
+  async listIssueAttachments(
+    actor,
+    params: ListIssueAttachmentsStoreParams,
+  ): Promise<PaginatedResult<AttachmentRecord>> {
+    return withUser(getDb(), actor, async (tx) => {
+      const conditions: Prisma.Sql[] = [
+        Prisma.sql`a."issue_id" = ${params.issueId}::uuid`,
+        Prisma.sql`a."deleted_at" IS NULL`,
+        Prisma.sql`i."deleted_at" IS NULL`,
+        Prisma.sql`t."archived_at" IS NULL`,
+      ];
+      if (params.cursor) {
+        const ts = new Date(params.cursor.t);
+        conditions.push(
+          Prisma.sql`(a."created_at" < ${ts} OR (a."created_at" = ${ts} AND a."id" < ${params.cursor.id}::uuid))`,
+        );
+      }
+
+      const whereSql = Prisma.join(conditions, " AND ");
+      const take = params.limit + 1;
+
+      const rows = await tx.$queryRaw<
+        {
+          id: string;
+          organizationId: string;
+          teamId: string;
+          issueId: string;
+          uploaderAccountId: string;
+          fileName: string;
+          contentType: string;
+          sizeBytes: number;
+          sha256: string;
+          storageKey: string;
+          createdAt: Date;
+        }[]
+      >`
+        SELECT a."id"::text AS "id",
+               a."organization_id"::text AS "organizationId",
+               a."team_id"::text AS "teamId",
+               a."issue_id"::text AS "issueId",
+               a."uploader_account_id"::text AS "uploaderAccountId",
+               a."file_name" AS "fileName",
+               a."content_type" AS "contentType",
+               a."size_bytes" AS "sizeBytes",
+               a."sha256",
+               a."storage_key" AS "storageKey",
+               a."created_at" AS "createdAt"
+        FROM "public"."issue_attachments" a
+        JOIN "public"."issues" i ON i."id" = a."issue_id"
+        JOIN "public"."teams" t ON t."id" = i."team_id"
+        WHERE ${whereSql}
+        ORDER BY a."created_at" DESC, a."id" DESC
+        LIMIT ${take}
+      `;
+
+      const hasMore = rows.length > params.limit;
+      const pageRows = hasMore ? rows.slice(0, params.limit) : rows;
+      const items: AttachmentRecord[] = pageRows.map((row) => ({
+        id: row.id,
+        organizationId: row.organizationId,
+        teamId: row.teamId,
+        issueId: row.issueId,
+        uploaderAccountId: row.uploaderAccountId,
+        fileName: row.fileName,
+        contentType: row.contentType as AttachmentContentType,
+        sizeBytes: row.sizeBytes,
+        sha256: row.sha256,
+        storageKey: row.storageKey,
+        createdAt: row.createdAt.toISOString(),
+      }));
+      const last = items[items.length - 1];
+      const nextCursor = hasMore && last ? encodeTimeIdCursor({ t: last.createdAt, id: last.id }) : null;
+      return { items, nextCursor };
+    });
+  },
+
+  async createIssueAttachment(actor, input: CreateIssueAttachmentStoreInput): Promise<AttachmentRecord> {
+    return withUser(getDb(), actor, async (tx) => {
+      // 1. Blokada wiersza zadania FOR UPDATE (zadanie nadal istnieje i nie jest usunięte)
+      const issueRows = await tx.$queryRaw<{ id: string; teamId: string }[]>`
+        SELECT i."id"::text AS "id", i."team_id"::text AS "teamId"
+        FROM "public"."issues" i
+        JOIN "public"."teams" t ON t."id" = i."team_id"
+        WHERE i."id" = ${input.issueId}::uuid
+          AND i."deleted_at" IS NULL
+          AND t."archived_at" IS NULL
+        FOR UPDATE OF i
+      `;
+      const lockedIssue = issueRows[0];
+      if (!lockedIssue || lockedIssue.teamId !== input.teamId) {
+        throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono zadania");
+      }
+
+      // 2. Blokada doradcza na firmę serializuje sprawdzenie limitu miejsca przy równoległych uploadach
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended('kivotasks:storage:' || ${actor.organizationId}::uuid::text, 0))
+      `;
+
+      // 3. Aktualne zużycie miejsca firmy (korzysta z indeksu częściowego issue_attachments_active_usage_idx)
+      const usageRows = await tx.$queryRaw<{ usedBytes: bigint }[]>`
+        SELECT COALESCE(SUM("size_bytes"), 0)::bigint AS "usedBytes"
+        FROM "public"."issue_attachments"
+        WHERE "organization_id" = ${actor.organizationId}::uuid
+          AND "deleted_at" IS NULL
+      `;
+      const usedBytes = Number(usageRows[0]?.usedBytes ?? 0n);
+      if (usedBytes + input.sizeBytes > input.quotaBytes) {
+        throw new ApiFailure(409, "STORAGE_QUOTA_EXCEEDED", "Brak miejsca na pliki firmy");
+      }
+
+      const now = new Date();
+      const inserted = await tx.$queryRaw<
+        {
+          id: string;
+          organizationId: string;
+          teamId: string;
+          issueId: string;
+          uploaderAccountId: string;
+          fileName: string;
+          contentType: string;
+          sizeBytes: number;
+          sha256: string;
+          storageKey: string;
+          createdAt: Date;
+        }[]
+      >`
+        INSERT INTO "public"."issue_attachments"
+          ("id", "organization_id", "team_id", "issue_id", "uploader_account_id",
+           "file_name", "content_type", "size_bytes", "sha256", "storage_key", "created_at")
+        VALUES
+          (${input.id}::uuid, ${actor.organizationId}::uuid, ${input.teamId}::uuid, ${input.issueId}::uuid,
+           ${actor.accountId}::uuid, ${input.fileName}, ${input.contentType}, ${input.sizeBytes},
+           ${input.sha256}, ${input.storageKey}, ${now})
+        RETURNING "id"::text AS "id",
+                  "organization_id"::text AS "organizationId",
+                  "team_id"::text AS "teamId",
+                  "issue_id"::text AS "issueId",
+                  "uploader_account_id"::text AS "uploaderAccountId",
+                  "file_name" AS "fileName",
+                  "content_type" AS "contentType",
+                  "size_bytes" AS "sizeBytes",
+                  "sha256",
+                  "storage_key" AS "storageKey",
+                  "created_at" AS "createdAt"
+      `;
+      const row = inserted[0];
+      if (!row) {
+        throw new ApiFailure(500, "INTERNAL_ERROR", "Nie udało się zapisać załącznika");
+      }
+
+      await insertIssueEvents(tx, [
+        {
+          organizationId: actor.organizationId,
+          teamId: input.teamId,
+          issueId: input.issueId,
+          actorAccountId: actor.accountId,
+          type: "ATTACHMENT_ADDED",
+          before: null,
+          after: {
+            attachmentId: row.id,
+            fileName: row.fileName,
+            sizeBytes: row.sizeBytes,
+            contentType: row.contentType,
+          },
+          createdAt: now,
+        },
+      ]);
+
+      return {
+        id: row.id,
+        organizationId: row.organizationId,
+        teamId: row.teamId,
+        issueId: row.issueId,
+        uploaderAccountId: row.uploaderAccountId,
+        fileName: row.fileName,
+        contentType: row.contentType as AttachmentContentType,
+        sizeBytes: row.sizeBytes,
+        sha256: row.sha256,
+        storageKey: row.storageKey,
+        createdAt: row.createdAt.toISOString(),
+      };
+    });
+  },
+
+  async findAttachmentById(actor, attachmentId): Promise<AttachmentRecord | null> {
+    return withUser(getDb(), actor, async (tx) => {
+      const rows = await tx.$queryRaw<
+        {
+          id: string;
+          organizationId: string;
+          teamId: string;
+          issueId: string;
+          uploaderAccountId: string;
+          fileName: string;
+          contentType: string;
+          sizeBytes: number;
+          sha256: string;
+          storageKey: string;
+          createdAt: Date;
+        }[]
+      >`
+        SELECT a."id"::text AS "id",
+               a."organization_id"::text AS "organizationId",
+               a."team_id"::text AS "teamId",
+               a."issue_id"::text AS "issueId",
+               a."uploader_account_id"::text AS "uploaderAccountId",
+               a."file_name" AS "fileName",
+               a."content_type" AS "contentType",
+               a."size_bytes" AS "sizeBytes",
+               a."sha256",
+               a."storage_key" AS "storageKey",
+               a."created_at" AS "createdAt"
+        FROM "public"."issue_attachments" a
+        JOIN "public"."issues" i ON i."id" = a."issue_id"
+        JOIN "public"."teams" t ON t."id" = i."team_id"
+        WHERE a."id" = ${attachmentId}::uuid
+          AND a."deleted_at" IS NULL
+          AND i."deleted_at" IS NULL
+          AND t."archived_at" IS NULL
+        LIMIT 1
+      `;
+      const row = rows[0];
+      if (!row) return null;
+      return {
+        id: row.id,
+        organizationId: row.organizationId,
+        teamId: row.teamId,
+        issueId: row.issueId,
+        uploaderAccountId: row.uploaderAccountId,
+        fileName: row.fileName,
+        contentType: row.contentType as AttachmentContentType,
+        sizeBytes: row.sizeBytes,
+        sha256: row.sha256,
+        storageKey: row.storageKey,
+        createdAt: row.createdAt.toISOString(),
+      };
+    });
+  },
+
+  async softDeleteIssueAttachment(actor, attachmentId): Promise<{ storageKey: string } | null> {
+    return withUser(getDb(), actor, async (tx) => {
+      // Kolejność blokad zawsze issues -> issue_attachments (jak w createIssueAttachment i softDeleteIssue),
+      // aby uniknąć zakleszczenia z miękkim usunięciem zadania i blokadą KEY SHARE przy wpisie do issue_events.
+      const lockedIssues = await tx.$queryRaw<{ id: string }[]>`
+        SELECT i."id"::text AS "id"
+        FROM "public"."issues" i
+        JOIN "public"."teams" t ON t."id" = i."team_id"
+        WHERE i."id" = (
+          SELECT a."issue_id"
+          FROM "public"."issue_attachments" a
+          WHERE a."id" = ${attachmentId}::uuid
+            AND a."deleted_at" IS NULL
+        )
+          AND i."deleted_at" IS NULL
+          AND t."archived_at" IS NULL
+        FOR UPDATE OF i
+      `;
+      const lockedIssue = lockedIssues[0];
+      if (!lockedIssue) return null;
+
+      const now = new Date();
+      const updatedRows = await tx.$queryRaw<
+        {
+          id: string;
+          teamId: string;
+          issueId: string;
+          fileName: string;
+          contentType: string;
+          sizeBytes: number;
+          storageKey: string;
+        }[]
+      >`
+        UPDATE "public"."issue_attachments"
+        SET "deleted_at" = ${now}
+        WHERE "id" = ${attachmentId}::uuid
+          AND "issue_id" = ${lockedIssue.id}::uuid
+          AND "deleted_at" IS NULL
+        RETURNING "id"::text AS "id",
+                  "team_id"::text AS "teamId",
+                  "issue_id"::text AS "issueId",
+                  "file_name" AS "fileName",
+                  "content_type" AS "contentType",
+                  "size_bytes" AS "sizeBytes",
+                  "storage_key" AS "storageKey"
+      `;
+      const row = updatedRows[0];
+      if (!row) return null;
+
+      await insertIssueEvents(tx, [
+        {
+          organizationId: actor.organizationId,
+          teamId: row.teamId,
+          issueId: row.issueId,
+          actorAccountId: actor.accountId,
+          type: "ATTACHMENT_REMOVED",
+          before: {
+            attachmentId: row.id,
+            fileName: row.fileName,
+            sizeBytes: row.sizeBytes,
+            contentType: row.contentType,
+          },
+          after: null,
+          createdAt: now,
+        },
+      ]);
+
+      return { storageKey: row.storageKey };
+    });
+  },
+
+  async getOrganizationStorageUsedBytes(actor): Promise<number> {
+    return withUser(getDb(), actor, async (tx) => {
+      const rows = await tx.$queryRaw<{ usedBytes: bigint }[]>`
+        SELECT COALESCE(SUM("size_bytes"), 0)::bigint AS "usedBytes"
+        FROM "public"."issue_attachments"
+        WHERE "organization_id" = ${actor.organizationId}::uuid
+          AND "deleted_at" IS NULL
+      `;
+      return Number(rows[0]?.usedBytes ?? 0n);
     });
   },
 };

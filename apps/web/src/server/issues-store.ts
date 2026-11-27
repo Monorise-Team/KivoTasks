@@ -1,5 +1,6 @@
 import "server-only";
 import type {
+  AttachmentContentType,
   ColorToken,
   CommentReactionEmoji,
   CommentReactionsResult,
@@ -137,7 +138,43 @@ export interface UpdateInboxItemStoreParams {
   archived?: boolean;
 }
 
+export interface AttachmentRecord {
+  id: string;
+  organizationId: string;
+  teamId: string;
+  issueId: string;
+  uploaderAccountId: string;
+  fileName: string;
+  contentType: AttachmentContentType;
+  sizeBytes: number;
+  sha256: string;
+  storageKey: string;
+  createdAt: string;
+}
+
+export interface ListIssueAttachmentsStoreParams {
+  issueId: string;
+  limit: number;
+  cursor?: TimeIdCursorPayload;
+}
+
+export interface CreateIssueAttachmentStoreInput {
+  id: string;
+  issueId: string;
+  teamId: string;
+  fileName: string;
+  contentType: AttachmentContentType;
+  sizeBytes: number;
+  sha256: string;
+  storageKey: string;
+  quotaBytes: number;
+}
+
 export type IssueLookup = { type: "id"; id: string } | { type: "identifier"; key: string; number: number };
+
+export interface SoftDeleteIssueResult {
+  readonly deletedAttachmentKeys: string[];
+}
 
 export interface IssuesStore {
   // Teams
@@ -179,7 +216,7 @@ export interface IssuesStore {
     input: UpdateIssueStoreInput,
     readableTeamIds: TeamFilterScope,
   ): Promise<UpdateIssueStoreResult | null>;
-  softDeleteIssue(actor: Actor, issueId: string): Promise<boolean>;
+  softDeleteIssue(actor: Actor, issueId: string): Promise<SoftDeleteIssueResult | null>;
 
   // Relations
   createIssueRelation(
@@ -230,6 +267,16 @@ export interface IssuesStore {
   getInboxUnreadCount(actor: Actor, readableTeamIds: TeamFilterScope): Promise<number>;
   updateInboxItem(actor: Actor, params: UpdateInboxItemStoreParams): Promise<InboxItem | null>;
   markAllInboxRead(actor: Actor, readableTeamIds: TeamFilterScope): Promise<number>;
+
+  // Attachments & storage
+  listIssueAttachments(
+    actor: Actor,
+    params: ListIssueAttachmentsStoreParams,
+  ): Promise<PaginatedResult<AttachmentRecord>>;
+  createIssueAttachment(actor: Actor, input: CreateIssueAttachmentStoreInput): Promise<AttachmentRecord>;
+  findAttachmentById(actor: Actor, attachmentId: string): Promise<AttachmentRecord | null>;
+  softDeleteIssueAttachment(actor: Actor, attachmentId: string): Promise<{ storageKey: string } | null>;
+  getOrganizationStorageUsedBytes(actor: Actor): Promise<number>;
 }
 
 export function getIssuesStore(): IssuesStore {

@@ -3,10 +3,12 @@
 import {
   ApiError,
   ISSUE_RELATION_VIEW_TYPES,
+  type IssueAttachment,
   type IssueDetail,
   type IssueListItem,
   type IssueRelationViewType,
   type Label,
+  type StorageUsage,
   type TeamMember,
   type UpdateIssueInput,
   type WorkflowState,
@@ -42,6 +44,7 @@ import {
   GitBranch,
   Link2,
   ListTodo,
+  Paperclip,
   Plus,
   Tag,
   Trash2,
@@ -49,8 +52,18 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import { APP_PATHS, formatApiError } from "../app-views";
+import { formatAttachmentMarkdown, insertTextAtCursor, resolveUploadedFileName } from "../attachments-ui";
 import {
   ISSUE_RELATION_LABELS,
   LINEAR_PRIORITY_OPTIONS,
@@ -62,7 +75,9 @@ import {
 } from "../issue-ui";
 import { useKivoTasks } from "../KivoTasksContext";
 import { IssueActivitySection } from "./IssueActivitySection";
+import { IssueAttachmentsSection } from "./IssueAttachmentsSection";
 import { ColorDot, LabelPill, PriorityIcon, StateIcon } from "./IssueBadges";
+import { MarkdownContent } from "./MarkdownContent";
 
 export function IssueDetailView({ identifier }: { identifier: string }) {
   const router = useRouter();
@@ -91,6 +106,10 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
   // Edycja tytułu i opisu
   const [titleDraft, setTitleDraft] = useState("");
   const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [descriptionPreview, setDescriptionPreview] = useState(false);
+  const [descriptionUploading, setDescriptionUploading] = useState(false);
+  const descriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const descriptionFileInputRef = useRef<HTMLInputElement>(null);
   const [estimateDraft, setEstimateDraft] = useState("");
   const [savingField, setSavingField] = useState<string | null>(null);
 
@@ -118,11 +137,27 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
   } | null>(null);
   const [relationBusy, setRelationBusy] = useState(false);
 
-  // Usuwanie zadania, obserwowanie i odświeżanie strumienia aktywności
+  // Usuwanie zadania, obserwowanie, załączniki i odświeżanie strumienia aktywności
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [subscriptionBusy, setSubscriptionBusy] = useState(false);
   const [activityRevision, setActivityRevision] = useState(0);
+  const [attachmentsRevision, setAttachmentsRevision] = useState(0);
+  const [storageUsage, setStorageUsage] = useState<StorageUsage | null>(null);
+
+  const refreshStorageUsage = useCallback(() => {
+    client.storage
+      .get()
+      .then((usage) => setStorageUsage(usage))
+      .catch(() => {
+        // Informacja pomocnicza o limicie miejsca firmy; nie blokuje widoku zadania
+      });
+  }, [client]);
+
+  useEffect(() => {
+    if (!canRead) return;
+    refreshStorageUsage();
+  }, [canRead, identifier, refreshStorageUsage]);
 
   useEffect(() => {
     if (!canRead) return;
@@ -134,6 +169,7 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
         setIssue(detail);
         setTitleDraft(detail.title);
         setDescriptionDraft(detail.description ?? "");
+        setDescriptionPreview(false);
         setEstimateDraft(detail.estimate !== null ? String(detail.estimate) : "");
         setLoadError(null);
         setActionError(null);
@@ -143,6 +179,7 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
         if (cancelled) return;
         const status = error instanceof ApiError ? error.status : 500;
         setIssue(null);
+        setDescriptionPreview(false);
         setLoadError({
           status,
           message: formatApiError(error, "Nie udało się wczytać szczegółów zadania."),
@@ -293,6 +330,35 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
       }
     },
     [issue, client, bumpIssuesRevision, toast, markTeamWriteDenied],
+  );
+
+  const handleAttachmentsChanged = useCallback(() => {
+    setActivityRevision((prev) => prev + 1);
+    refreshStorageUsage();
+  }, [refreshStorageUsage]);
+
+  const handleUploadInlineAttachment = useCallback(
+    async (file: File): Promise<IssueAttachment | null> => {
+      if (!issue) return null;
+      setActionError(null);
+      try {
+        const fileName = resolveUploadedFileName(file);
+        const created = await client.attachments.upload(issue.id, file, fileName);
+        setAttachmentsRevision((prev) => prev + 1);
+        setActivityRevision((prev) => prev + 1);
+        refreshStorageUsage();
+        return created;
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 403 && error.code === "PERMISSION_DENIED") {
+          markTeamWriteDenied(issue.teamId);
+        }
+        const message = formatApiError(error, "Nie udało się wysłać załącznika.");
+        setActionError(message);
+        toast({ title: "Nie udało się wysłać załącznika", description: message, tone: "danger" });
+        return null;
+      }
+    },
+    [issue, client, refreshStorageUsage, markTeamWriteDenied, toast],
   );
 
   if (loading) {
@@ -536,6 +602,34 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
     }
   };
 
+  const handleDescriptionFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || descriptionUploading) return;
+    const node = descriptionTextareaRef.current;
+    const start = node?.selectionStart ?? descriptionDraft.length;
+    const end = node?.selectionEnd ?? start;
+    setDescriptionUploading(true);
+    try {
+      const uploaded = await handleUploadInlineAttachment(file);
+      if (!uploaded) return;
+      const snippet = formatAttachmentMarkdown(uploaded);
+      const currentText = descriptionTextareaRef.current?.value ?? descriptionDraft;
+      const { nextText, nextCursorPos } = insertTextAtCursor(currentText, start, end, snippet);
+      setDescriptionDraft(nextText);
+      setDescriptionPreview(false);
+      window.requestAnimationFrame(() => {
+        const el = descriptionTextareaRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(nextCursorPos, nextCursorPos);
+        }
+      });
+    } finally {
+      setDescriptionUploading(false);
+    }
+  };
+
   const handleCopyIdentifier = async () => {
     try {
       await navigator.clipboard.writeText(issue.identifier);
@@ -640,25 +734,67 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
 
           {/* Opis */}
           <section aria-labelledby="issue-desc-heading" className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 id="issue-desc-heading" className="text-xs font-semibold tracking-wider text-text-tertiary uppercase">
                 Opis
               </h2>
-              {savingField === "description" ? <span className="text-xs text-text-tertiary">Zapisywanie…</span> : null}
+              <div className="flex items-center gap-2">
+                {savingField === "description" ? (
+                  <span className="text-xs text-text-tertiary">Zapisywanie…</span>
+                ) : null}
+                {canWrite ? (
+                  <>
+                    <input
+                      ref={descriptionFileInputRef}
+                      type="file"
+                      className="sr-only"
+                      aria-label="Załącz plik do opisu zadania"
+                      onChange={(event) => void handleDescriptionFileChange(event)}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      icon={<Paperclip aria-hidden />}
+                      disabled={savingField === "description" || descriptionUploading || storageUsage?.state === "FULL"}
+                      onClick={() => descriptionFileInputRef.current?.click()}
+                    >
+                      {descriptionUploading ? "Wysyłanie…" : "Załącz plik"}
+                    </Button>
+                    {descriptionPreview || descriptionDraft.trim().length > 0 ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => setDescriptionPreview((prev) => !prev)}
+                      >
+                        {descriptionPreview ? "Edytuj" : "Podgląd"}
+                      </Button>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
             </div>
 
             {canWrite ? (
               <div className="flex flex-col gap-2">
-                <TextArea
-                  aria-label="Opis zadania"
-                  placeholder="Dodaj opis zadania…"
-                  value={descriptionDraft}
-                  rows={6}
-                  maxLength={50_000}
-                  disabled={savingField === "description"}
-                  onChange={(event) => setDescriptionDraft(event.target.value)}
-                  onKeyDown={handleDescriptionKeyDown}
-                />
+                {descriptionPreview ? (
+                  <div className="rounded-card border border-border-primary bg-bg-secondary/45 p-4">
+                    <MarkdownContent body={descriptionDraft} />
+                  </div>
+                ) : (
+                  <TextArea
+                    ref={descriptionTextareaRef}
+                    aria-label="Opis zadania"
+                    placeholder="Dodaj opis zadania…"
+                    value={descriptionDraft}
+                    rows={6}
+                    maxLength={50_000}
+                    disabled={savingField === "description"}
+                    onChange={(event) => setDescriptionDraft(event.target.value)}
+                    onKeyDown={handleDescriptionKeyDown}
+                  />
+                )}
                 {descriptionDirty ? (
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs text-text-tertiary">Naciśnij ⌘+Enter lub Ctrl+Enter, aby zapisać.</span>
@@ -667,7 +803,10 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
                         variant="secondary"
                         size="sm"
                         disabled={savingField === "description"}
-                        onClick={() => setDescriptionDraft(issue.description ?? "")}
+                        onClick={() => {
+                          setDescriptionDraft(issue.description ?? "");
+                          setDescriptionPreview(false);
+                        }}
                       >
                         Anuluj
                       </Button>
@@ -684,13 +823,25 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
                 ) : null}
               </div>
             ) : issue.description ? (
-              <div className="rounded-card border border-border-primary bg-bg-secondary/45 p-4 text-sm leading-relaxed whitespace-pre-wrap text-text-primary">
-                {issue.description}
+              <div className="rounded-card border border-border-primary bg-bg-secondary/45 p-4">
+                <MarkdownContent body={issue.description} />
               </div>
             ) : (
               <p className="text-sm text-text-tertiary">Brak opisu.</p>
             )}
           </section>
+
+          <Separator />
+
+          {/* Załączniki */}
+          <IssueAttachmentsSection
+            issueId={issue.id}
+            teamId={issue.teamId}
+            canWrite={canWrite}
+            attachmentsRevision={attachmentsRevision}
+            storageUsage={storageUsage}
+            onAttachmentsChanged={handleAttachmentsChanged}
+          />
 
           <Separator />
 
@@ -960,6 +1111,9 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
             members={members}
             memberNameByAccountId={memberNameByAccountId}
             canManageTeam={canManage}
+            canWriteIssues={canWrite}
+            uploadDisabled={storageUsage?.state === "FULL"}
+            onUploadAttachment={handleUploadInlineAttachment}
             activityRevision={activityRevision}
             onCommentCreated={() => setIssue((prev) => (prev ? { ...prev, isSubscribed: true } : prev))}
           />

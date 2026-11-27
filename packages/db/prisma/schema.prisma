@@ -52,6 +52,8 @@ enum IssueEventType {
   RELATION_ADDED
   RELATION_REMOVED
   DELETED
+  ATTACHMENT_ADDED
+  ATTACHMENT_REMOVED
 
   @@schema("public")
 }
@@ -173,40 +175,41 @@ model Label {
 
 /// Zadanie zespołu KivoTasks (identyfikator KEY-number, miękkie usuwanie przez deleted_at).
 model Issue {
-  id                String                    @id @db.Uuid
-  organizationId    String                    @map("organization_id") @db.Uuid
-  teamId            String                    @map("team_id") @db.Uuid
+  id                String                   @id @db.Uuid
+  organizationId    String                   @map("organization_id") @db.Uuid
+  teamId            String                   @map("team_id") @db.Uuid
   number            Int
   title             String
   description       String?
-  stateId           String                    @map("state_id") @db.Uuid
+  stateId           String                   @map("state_id") @db.Uuid
   /// Priorytet jak w Linear: 0 brak, 1 pilny, 2 wysoki, 3 średni, 4 niski.
-  priority          Int                       @default(0) @db.SmallInt
-  assigneeAccountId String?                   @map("assignee_account_id") @db.Uuid
-  creatorAccountId  String                    @map("creator_account_id") @db.Uuid
-  dueDate           DateTime?                 @map("due_date") @db.Date
-  estimate          Int?                      @db.SmallInt
-  parentId          String?                   @map("parent_id") @db.Uuid
-  sortOrder         Float                     @default(0) @map("sort_order")
-  startedAt         DateTime?                 @map("started_at") @db.Timestamptz(3)
-  completedAt       DateTime?                 @map("completed_at") @db.Timestamptz(3)
-  canceledAt        DateTime?                 @map("canceled_at") @db.Timestamptz(3)
-  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
-  deletedAt         DateTime?                 @map("deleted_at") @db.Timestamptz(3)
+  priority          Int                      @default(0) @db.SmallInt
+  assigneeAccountId String?                  @map("assignee_account_id") @db.Uuid
+  creatorAccountId  String                   @map("creator_account_id") @db.Uuid
+  dueDate           DateTime?                @map("due_date") @db.Date
+  estimate          Int?                     @db.SmallInt
+  parentId          String?                  @map("parent_id") @db.Uuid
+  sortOrder         Float                    @default(0) @map("sort_order")
+  startedAt         DateTime?                @map("started_at") @db.Timestamptz(3)
+  completedAt       DateTime?                @map("completed_at") @db.Timestamptz(3)
+  canceledAt        DateTime?                @map("canceled_at") @db.Timestamptz(3)
+  createdAt         DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt         DateTime?                @map("deleted_at") @db.Timestamptz(3)
   /// Kolumna generowana PostgreSQL (konfiguracja 'simple', tytuł waga A, opis waga B) z indeksem GIN.
-  searchVector      Unsupported("tsvector")?  @map("search_vector")
-  team              Team                      @relation(fields: [organizationId, teamId], references: [organizationId, id], onDelete: Restrict)
-  state             WorkflowState             @relation(fields: [organizationId, teamId, stateId], references: [organizationId, teamId, id], onDelete: Restrict)
-  parent            Issue?                    @relation("IssueHierarchy", fields: [organizationId, teamId, parentId], references: [organizationId, teamId, id], onDelete: Restrict)
-  children          Issue[]                   @relation("IssueHierarchy")
+  searchVector      Unsupported("tsvector")? @map("search_vector")
+  team              Team                     @relation(fields: [organizationId, teamId], references: [organizationId, id], onDelete: Restrict)
+  state             WorkflowState            @relation(fields: [organizationId, teamId, stateId], references: [organizationId, teamId, id], onDelete: Restrict)
+  parent            Issue?                   @relation("IssueHierarchy", fields: [organizationId, teamId, parentId], references: [organizationId, teamId, id], onDelete: Restrict)
+  children          Issue[]                  @relation("IssueHierarchy")
   issueLabels       IssueLabel[]
-  outgoingRelations IssueRelation[]           @relation("IssueOutgoingRelations")
-  incomingRelations IssueRelation[]           @relation("IssueIncomingRelations")
+  outgoingRelations IssueRelation[]          @relation("IssueOutgoingRelations")
+  incomingRelations IssueRelation[]          @relation("IssueIncomingRelations")
   comments          IssueComment[]
   events            IssueEvent[]
   subscribers       IssueSubscriber[]
   inboxItems        InboxItem[]
+  attachments       IssueAttachment[]
 
   @@unique([organizationId, id])
   @@unique([organizationId, teamId, id])
@@ -331,6 +334,32 @@ model IssueEvent {
   @@index([organizationId, issueId, createdAt, id], map: "issue_events_org_issue_created_idx")
   @@index([organizationId, teamId])
   @@map("issue_events")
+  @@schema("public")
+}
+
+/// Plik dołączony do zadania. Treść leży w magazynie zgodnym z S3 pod `storageKey`, w bazie jest tylko opis pliku.
+/// Typ `contentType` serwer rozpoznaje po zawartości (PNG, JPEG, GIF, WebP), inne pliki mają `application/octet-stream`.
+/// Usunięcie jest miękkie (`deletedAt`): wiersz zostaje dla historii, plik w magazynie serwer kasuje po zatwierdzeniu.
+/// Zużycie miejsca firmy to suma `sizeBytes` nieusuniętych wierszy (indeks częściowy w migracji).
+model IssueAttachment {
+  id                String    @id @db.Uuid
+  organizationId    String    @map("organization_id") @db.Uuid
+  teamId            String    @map("team_id") @db.Uuid
+  issueId           String    @map("issue_id") @db.Uuid
+  uploaderAccountId String    @map("uploader_account_id") @db.Uuid
+  fileName          String    @map("file_name")
+  contentType       String    @map("content_type")
+  sizeBytes         Int       @map("size_bytes")
+  sha256            String
+  storageKey        String    @unique @map("storage_key")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(3)
+  issue             Issue     @relation(fields: [organizationId, teamId, issueId], references: [organizationId, teamId, id], onDelete: Cascade)
+
+  @@unique([organizationId, id])
+  @@index([organizationId, issueId, createdAt, id], map: "issue_attachments_org_issue_created_idx")
+  @@index([organizationId, teamId])
+  @@map("issue_attachments")
   @@schema("public")
 }
 

@@ -399,14 +399,39 @@ describe("API: sesja, Core SDK, uprawnienia i ochrona CSRF", () => {
     expect(response.headers.get("set-cookie")).toMatch(/^monorise-oauth=.*HttpOnly; SameSite=Lax/);
   });
 
-  it("odrzuca zmianę z ciasteczkiem spoza strony (CSRF)", async () => {
+  it("odrzuca zmianę z ciasteczkiem spoza strony (CSRF), w tym Origin: null i błędny URL, ale akceptuje ten sam host za proxy TLS", async () => {
     const mutatingHandler = route(async () => ({ ok: true }));
-    const { status, body } = await call(mutatingHandler, "/csrf-probe", {
+    const foreign = await call(mutatingHandler, "/csrf-probe", {
       method: "POST",
       body: {},
       headers: { cookie: "monorise-session=x", origin: "https://zla-strona.example" },
     });
-    expect(status).toBe(403);
-    expect(body.error.code).toBe("PERMISSION_DENIED");
+    expect(foreign.status).toBe(403);
+    expect(foreign.body.error.code).toBe("PERMISSION_DENIED");
+
+    const nullOrigin = await call(mutatingHandler, "/csrf-probe", {
+      method: "POST",
+      body: {},
+      headers: { cookie: "monorise-session=x", origin: "null" },
+    });
+    expect(nullOrigin.status).toBe(403);
+    expect(nullOrigin.body.error.code).toBe("PERMISSION_DENIED");
+
+    const malformedOrigin = await call(mutatingHandler, "/csrf-probe", {
+      method: "POST",
+      body: {},
+      headers: { cookie: "monorise-session=x", origin: "://niepoprawny-origin" },
+    });
+    expect(malformedOrigin.status).toBe(403);
+    expect(malformedOrigin.body.error.code).toBe("PERMISSION_DENIED");
+
+    // Za load balancerem kończącym TLS request może mieć http:, podczas gdy Origin ma https: i ten sam host
+    const behindTlsLb = await call(mutatingHandler, "/csrf-probe", {
+      method: "POST",
+      body: {},
+      headers: { cookie: "monorise-session=x", origin: "https://kivo.localhost:3500" },
+    });
+    expect(behindTlsLb.status).toBe(200);
+    expect(behindTlsLb.body.data).toEqual({ ok: true });
   });
 });

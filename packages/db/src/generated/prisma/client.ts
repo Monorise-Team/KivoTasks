@@ -107,6 +107,14 @@ export type CommentReaction = Prisma.CommentReactionModel
  */
 export type IssueEvent = Prisma.IssueEventModel
 /**
+ * Model IssueAttachment
+ * Plik dołączony do zadania. Treść leży w magazynie zgodnym z S3 pod `storageKey`, w bazie jest tylko opis pliku.
+ * Typ `contentType` serwer rozpoznaje po zawartości (PNG, JPEG, GIF, WebP), inne pliki mają `application/octet-stream`.
+ * Usunięcie jest miękkie (`deletedAt`): wiersz zostaje dla historii, plik w magazynie serwer kasuje po zatwierdzeniu.
+ * Zużycie miejsca firmy to suma `sizeBytes` nieusuniętych wierszy (indeks częściowy w migracji).
+ */
+export type IssueAttachment = Prisma.IssueAttachmentModel
+/**
  * Model IssueSubscriber
  * Osoba obserwująca zadanie (otrzymuje wpisy COMMENTED w skrzynce powiadomień).
  */

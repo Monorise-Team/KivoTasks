@@ -11,6 +11,8 @@ import { join, resolve } from "node:path";
 import { createFakeCore, defineProductContractTests, type FakeCore } from "@monorise-team/testing";
 import { NextRequest } from "next/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import * as attachmentById from "@/app/api/v1/attachments/[attachmentId]/route";
+import * as attachmentContent from "@/app/api/v1/attachments/[attachmentId]/content/route";
 import * as health from "@/app/api/v1/health/route";
 import * as inbox from "@/app/api/v1/inbox/route";
 import * as inboxById from "@/app/api/v1/inbox/[itemId]/route";
@@ -18,6 +20,7 @@ import * as inboxReadAll from "@/app/api/v1/inbox/read-all/route";
 import * as inboxUnreadCount from "@/app/api/v1/inbox/unread-count/route";
 import * as issueById from "@/app/api/v1/issues/[issueId]/route";
 import * as issueActivity from "@/app/api/v1/issues/[issueId]/activity/route";
+import * as issueAttachments from "@/app/api/v1/issues/[issueId]/attachments/route";
 import * as issueComments from "@/app/api/v1/issues/[issueId]/comments/route";
 import * as issueCommentById from "@/app/api/v1/issues/[issueId]/comments/[commentId]/route";
 import * as commentReaction from "@/app/api/v1/issues/[issueId]/comments/[commentId]/reactions/[emoji]/route";
@@ -27,6 +30,7 @@ import * as issueSubscription from "@/app/api/v1/issues/[issueId]/subscription/r
 import * as issues from "@/app/api/v1/issues/route";
 import * as me from "@/app/api/v1/me/route";
 import * as search from "@/app/api/v1/search/route";
+import * as storage from "@/app/api/v1/storage/route";
 import * as teamById from "@/app/api/v1/teams/[teamId]/route";
 import * as teamLabels from "@/app/api/v1/teams/[teamId]/labels/route";
 import * as teamLabelById from "@/app/api/v1/teams/[teamId]/labels/[labelId]/route";
@@ -122,6 +126,12 @@ const ROUTE_HANDLERS: Readonly<Record<string, AnyNextRouteHandler>> = {
   "PATCH /api/v1/inbox/{itemId}": adapt(inboxById.PATCH),
   "POST /api/v1/inbox/read-all": adapt(inboxReadAll.POST),
   "GET /api/v1/search": adapt(search.GET),
+  "GET /api/v1/issues/{issueId}/attachments": adapt(issueAttachments.GET),
+  "POST /api/v1/issues/{issueId}/attachments": adapt(issueAttachments.POST),
+  "GET /api/v1/attachments/{attachmentId}": adapt(attachmentById.GET),
+  "GET /api/v1/attachments/{attachmentId}/content": adapt(attachmentContent.GET),
+  "DELETE /api/v1/attachments/{attachmentId}": adapt(attachmentById.DELETE),
+  "GET /api/v1/storage": adapt(storage.GET),
 };
 
 const COMPILED_ROUTES: RoutePatternEntry[] = Object.entries(ROUTE_HANDLERS)
@@ -295,8 +305,18 @@ await defineProductContractTests({
     { method: "PATCH", path: `/api/v1/inbox/${DUMMY_UUID_1}`, body: { read: true } },
     { method: "POST", path: "/api/v1/inbox/read-all" },
     { method: "GET", path: "/api/v1/search?q=test" },
+    { method: "GET", path: `/api/v1/issues/${DUMMY_UUID_1}/attachments` },
+    { method: "POST", path: `/api/v1/issues/${DUMMY_UUID_1}/attachments` },
+    { method: "GET", path: `/api/v1/attachments/${DUMMY_UUID_1}` },
+    { method: "GET", path: `/api/v1/attachments/${DUMMY_UUID_1}/content` },
+    { method: "DELETE", path: `/api/v1/attachments/${DUMMY_UUID_1}` },
+    // Trasa `/storage` zwraca zużycie miejsca firmy po sprawdzeniu dostępu do produktu (bez osobnego uprawnienia roli)
+    { method: "GET", path: "/api/v1/storage", skipPermissionCheck: true },
   ],
   openApi: () => buildOpenApiDocument(),
+  openApiOptions: {
+    rawResponseOperations: ["getAttachmentContent"],
+  },
 });
 
 describe("OpenAPI KivoTasks API", () => {

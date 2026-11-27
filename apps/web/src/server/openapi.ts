@@ -15,6 +15,7 @@ import {
   apiListSuccessSchema,
   ApiMeta,
   apiSuccessSchema,
+  AttachmentContentType,
   Capabilities,
   ColorToken,
   CommentReactionEmoji,
@@ -29,6 +30,8 @@ import {
   IssueActivityCommentItem,
   IssueActivityEventItem,
   IssueActivityItem,
+  IssueAttachment,
+  IssueAttachmentUploader,
   IssueComment,
   IssueEvent,
   IssueEventType,
@@ -42,6 +45,7 @@ import {
   IssueStateSummary,
   Label,
   Me,
+  StorageUsageState,
   Team,
   TeamCandidate,
   TeamMember,
@@ -64,11 +68,12 @@ const ERROR_STATUS_SUMMARY: Record<ErrorStatus, string> = {
   401: "Brak albo nieważny token dostępu albo wygasła sesja",
   403: "Brak dostępu do produktu albo brak uprawnienia",
   404: "Nie znaleziono zasobu",
-  409: "Konflikt stanu zasobu",
+  409: "Konflikt stanu zasobu lub przekroczony limit miejsca firmy",
+  413: "Plik przekracza dopuszczalny rozmiar",
   422: "Błędne dane wejściowe",
   429: "Przekroczony limit zapytań",
   500: "Wewnętrzny błąd serwera",
-  503: "Usługa zależna (MonoriseCore) chwilowo niedostępna",
+  503: "Usługa zależna chwilowo niedostępna",
 };
 
 const METHOD_ORDER = ["get", "post", "put", "patch", "delete"] as const;
@@ -119,20 +124,22 @@ export interface OpenApiParameterObject {
 export interface OpenApiRequestBodyObject {
   required: boolean;
   description?: string;
-  content: {
-    "application/json": {
-      schema: { $ref: string };
-    };
-  };
+  content: Record<
+    string,
+    {
+      schema: Record<string, unknown>;
+    }
+  >;
 }
 
 export interface OpenApiResponseObject {
   description: string;
-  content?: {
-    "application/json": {
-      schema: { $ref: string };
-    };
-  };
+  content?: Record<
+    string,
+    {
+      schema: Record<string, unknown>;
+    }
+  >;
 }
 
 export interface OpenApiOperation {
@@ -211,6 +218,10 @@ function buildSchemaRegistry(routes: readonly RouteDefinition[]) {
   register("InboxFilter", InboxFilter);
   register("InboxIssueSummary", InboxIssueSummary);
   register("InboxItem", InboxItem);
+  register("AttachmentContentType", AttachmentContentType);
+  register("IssueAttachmentUploader", IssueAttachmentUploader);
+  register("IssueAttachment", IssueAttachment);
+  register("StorageUsageState", StorageUsageState);
 
   const responseEnvelopes = new Map<string, z.ZodType>();
   for (const route of routes) {
@@ -285,6 +296,22 @@ function buildOperation(route: RouteDefinition, idBySchema: ReadonlyMap<z.ZodTyp
     responses["204"] = {
       description: route.responseDescription,
     };
+  } else if (route.binaryResponse) {
+    const content: Record<string, { schema: Record<string, unknown> }> = {};
+    for (const contentType of route.binaryResponse.contentTypes) {
+      content[contentType] = {
+        schema: { type: "string", contentMediaType: contentType },
+      };
+    }
+    responses[String(route.successStatus)] = {
+      description: route.responseDescription,
+      content,
+    };
+    if (route.binaryResponse.notModifiedDescription) {
+      responses["304"] = {
+        description: route.binaryResponse.notModifiedDescription,
+      };
+    }
   } else {
     const successSchemaName =
       route.envelope && route.responseSchemaName ? route.responseSchemaName : route.dataSchemaName;
@@ -323,17 +350,28 @@ function buildOperation(route: RouteDefinition, idBySchema: ReadonlyMap<z.ZodTyp
       ? route.parameters.map((param) => buildParameter(param, idBySchema))
       : undefined;
 
+  const requestBodyContentType = route.requestBodyContentType ?? "application/json";
   const requestBody: OpenApiRequestBodyObject | undefined = route.requestBodySchemaName
     ? {
         required: route.requestBodyRequired ?? true,
         ...(route.requestBodyDescription ? { description: route.requestBodyDescription } : {}),
         content: {
-          "application/json": {
+          [requestBodyContentType]: {
             schema: { $ref: `#/components/schemas/${route.requestBodySchemaName}` },
           },
         },
       }
-    : undefined;
+    : route.requestBodyRawSchema
+      ? {
+          required: route.requestBodyRequired ?? true,
+          ...(route.requestBodyDescription ? { description: route.requestBodyDescription } : {}),
+          content: {
+            [requestBodyContentType]: {
+              schema: route.requestBodyRawSchema,
+            },
+          },
+        }
+      : undefined;
 
   const security = buildSecurity(route.auth);
 

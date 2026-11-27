@@ -61,6 +61,26 @@ function corsHeaders(request: NextRequest): Record<string, string> {
     : {};
 }
 
+function applyCorsHeaders(headers: Headers, request: NextRequest): void {
+  const cors = corsHeaders(request);
+  if (cors["Access-Control-Allow-Origin"]) {
+    headers.set("Access-Control-Allow-Origin", cors["Access-Control-Allow-Origin"]);
+  }
+  if (cors.Vary) {
+    const existingVary = headers.get("Vary");
+    if (!existingVary) {
+      headers.set("Vary", cors.Vary);
+    } else if (
+      !existingVary
+        .split(",")
+        .map((item) => item.trim().toLowerCase())
+        .includes("origin")
+    ) {
+      headers.set("Vary", `${existingVary}, Origin`);
+    }
+  }
+}
+
 function respond(request: NextRequest, status: number, body: unknown, headers: Record<string, string> = {}) {
   const responseHeaders = { "Cache-Control": "no-store", ...corsHeaders(request), ...headers };
   if (status === 204) {
@@ -148,6 +168,22 @@ export function route<P = Record<string, never>>(
     try {
       assertSameOrigin(request);
       const result = await fn({ request, params: await context.params, requestId: id, cookies });
+      if (result instanceof Response) {
+        let passthrough: NextResponse;
+        if (result instanceof NextResponse) {
+          passthrough = result;
+        } else {
+          passthrough = new NextResponse(result.body, {
+            status: result.status,
+            statusText: result.statusText,
+            headers: new Headers(result.headers),
+          });
+        }
+        passthrough.headers.set("X-Request-Id", id);
+        applyCorsHeaders(passthrough.headers, request);
+        for (const apply of pending) apply(passthrough);
+        return passthrough;
+      }
       const response =
         status === 204
           ? respond(request, 204, null)
@@ -186,7 +222,16 @@ function assertSameOrigin(request: NextRequest) {
   if (request.headers.get("authorization")) return;
   const origin = request.headers.get("origin");
   const host = request.headers.get("host");
-  if (!origin || !host || new URL(origin).host !== host) {
+  if (!origin || !host) {
+    throw new ApiFailure(403, "PERMISSION_DENIED", "Żądanie spoza strony KivoTasks");
+  }
+  let originHost: string;
+  try {
+    originHost = new URL(origin).host;
+  } catch {
+    throw new ApiFailure(403, "PERMISSION_DENIED", "Żądanie spoza strony KivoTasks");
+  }
+  if (!originHost || originHost !== host) {
     throw new ApiFailure(403, "PERMISSION_DENIED", "Żądanie spoza strony KivoTasks");
   }
 }

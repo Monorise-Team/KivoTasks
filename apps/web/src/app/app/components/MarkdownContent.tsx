@@ -50,6 +50,24 @@ function renderInlineNodes(nodes: readonly MarkdownInlineNode[], keyPrefix: stri
             {node.label}
           </a>
         );
+      case "image":
+        return (
+          <a
+            key={key}
+            href={node.src}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="my-1 inline-block max-w-full align-bottom"
+          >
+            <img
+              src={node.src}
+              alt={node.alt}
+              loading="lazy"
+              decoding="async"
+              className="max-h-96 max-w-full rounded-control border border-border-primary object-contain"
+            />
+          </a>
+        );
       case "mention":
         return (
           <span

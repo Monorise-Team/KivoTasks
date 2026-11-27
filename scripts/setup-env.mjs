@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Ustawienia do pracy lokalnej:
- * - apps/web/.env.local: sekret sesji, baza (rola aplikacji), adresy MonoriseCore i sekret klienta
- *   kivotasks-web z Core (z pliku, który zapisuje `pnpm oauth:seed` w MonoriseCore),
+ * - apps/web/.env.local: sekret sesji, baza (rola aplikacji), adresy MonoriseCore, sekret klienta
+ *   kivotasks-web z Core (z pliku, który zapisuje `pnpm oauth:seed` w MonoriseCore) oraz magazyn plików MinIO,
  * - packages/db/.env: baza dla migracji (właściciel tabel).
  * Istniejących wartości nie zmienia: dopisuje tylko brakujące.
  */
@@ -38,6 +38,12 @@ ensure("apps/web/.env.local", "# Tylko lokalnie. Nigdy nie commituj tego pliku."
   CORE_API_URL: "http://localhost:3200",
   KIVOTASKS_OAUTH_CLIENT_ID: "kivotasks-web",
   KIVOTASKS_OAUTH_CLIENT_SECRET: coreSecret,
+  KIVOTASKS_S3_ENDPOINT: "http://127.0.0.1:9036",
+  KIVOTASKS_S3_REGION: "eu-central-1",
+  KIVOTASKS_S3_BUCKET: "kivo-tasks-attachments",
+  KIVOTASKS_S3_FORCE_PATH_STYLE: "true",
+  KIVOTASKS_S3_ACCESS_KEY_ID: "kivo_tasks_storage",
+  KIVOTASKS_S3_SECRET_ACCESS_KEY: "kivo_tasks_storage_local",
 });
 ensure("packages/db/.env", "# Tylko lokalnie: właściciel tabel, do migracji.", {
   DATABASE_URL: "postgresql://kivo_tasks_owner:kivo_tasks_owner@localhost:5436/kivo_tasks",

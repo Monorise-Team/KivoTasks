@@ -1,6 +1,14 @@
 {
   "$schema": "https://turborepo.com/schema.json",
-  "globalEnv": ["KIVOTASKS_TEST_DATABASE_URL", "KIVOTASKS_TEST_APP_DATABASE_URL"],
+  "globalEnv": [
+    "KIVOTASKS_TEST_DATABASE_URL",
+    "KIVOTASKS_TEST_APP_DATABASE_URL",
+    "KIVOTASKS_TEST_S3_ENDPOINT",
+    "KIVOTASKS_TEST_S3_REGION",
+    "KIVOTASKS_TEST_S3_BUCKET",
+    "KIVOTASKS_TEST_S3_ACCESS_KEY_ID",
+    "KIVOTASKS_TEST_S3_SECRET_ACCESS_KEY"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

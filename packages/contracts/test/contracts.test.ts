@@ -6,6 +6,7 @@ import {
   ApiListMeta,
   apiListSuccessSchema,
   apiSuccessSchema,
+  ATTACHMENT_CONTENT_TYPES,
   COMMENT_REACTION_EMOJIS,
   CommentReactionEmoji,
   CreateIssueCommentInput,
@@ -20,12 +21,17 @@ import {
   INBOX_ITEM_KINDS,
   InboxListQuery,
   ISSUE_EVENT_TYPES,
+  IssueAttachment,
+  IssueAttachmentEventPayload,
+  IssueAttachmentsQuery,
   IssueList,
   IssueListQuery,
   KIVOTASKS_PERMISSION_MANIFEST,
   KIVOTASKS_PERMISSIONS,
   KIVOTASKS_ROLE_TEMPLATES,
   Me,
+  STORAGE_USAGE_STATES,
+  StorageUsage,
   TeamKey,
   UpdateInboxItemInput,
   UpdateIssueCommentInput,
@@ -267,13 +273,66 @@ describe("schematy etapu 2a: komentarze, reakcje, historia i skrzynka", () => {
     expect(CommentReactionEmoji.parse("🚀")).toBe("🚀");
     expect(() => CommentReactionEmoji.parse("🔥")).toThrow();
 
-    expect(ISSUE_EVENT_TYPES).toHaveLength(13);
+    expect(ISSUE_EVENT_TYPES).toHaveLength(15);
     expect(ISSUE_EVENT_TYPES).toContain("CREATED");
     expect(ISSUE_EVENT_TYPES).toContain("DESCRIPTION_CHANGED");
     expect(ISSUE_EVENT_TYPES).toContain("RELATION_REMOVED");
     expect(ISSUE_EVENT_TYPES).toContain("DELETED");
+    expect(ISSUE_EVENT_TYPES).toContain("ATTACHMENT_ADDED");
+    expect(ISSUE_EVENT_TYPES).toContain("ATTACHMENT_REMOVED");
 
     expect(INBOX_ITEM_KINDS).toEqual(["ASSIGNED", "MENTIONED", "COMMENTED"]);
+  });
+
+  it("waliduje kody błędów i schematy etapu 2b (załączniki i zużycie miejsca firmy)", () => {
+    expect(ERROR_CODES).toContain("PAYLOAD_TOO_LARGE");
+    expect(ERROR_CODES).toContain("STORAGE_QUOTA_EXCEEDED");
+    expect(ATTACHMENT_CONTENT_TYPES).toEqual([
+      "image/png",
+      "image/jpeg",
+      "image/gif",
+      "image/webp",
+      "application/octet-stream",
+    ]);
+    expect(STORAGE_USAGE_STATES).toEqual(["OK", "WARNING", "FULL"]);
+
+    const attachment = IssueAttachment.parse({
+      id: SAMPLE_UUID,
+      issueId: SAMPLE_UUID,
+      fileName: "zrzut.png",
+      contentType: "image/png",
+      sizeBytes: 2048,
+      uploader: { accountId: SAMPLE_UUID, name: "Anna Nowak" },
+      createdAt: "2026-11-27T12:00:00.000Z",
+      contentUrl: `/api/v1/attachments/${SAMPLE_UUID}/content`,
+      inline: true,
+      canDelete: true,
+    });
+    expect(attachment.inline).toBe(true);
+    expect(() => IssueAttachment.parse({ ...attachment, sizeBytes: 0 })).toThrow();
+    expect(() => IssueAttachment.parse({ ...attachment, contentType: "image/svg+xml" })).toThrow();
+
+    expect(
+      IssueAttachmentEventPayload.parse({
+        attachmentId: SAMPLE_UUID,
+        fileName: "raport.pdf",
+        sizeBytes: 1234,
+        contentType: "application/octet-stream",
+      }),
+    ).toMatchObject({ fileName: "raport.pdf", contentType: "application/octet-stream" });
+
+    expect(IssueAttachmentsQuery.parse({})).toEqual({ limit: 50 });
+    expect(IssueAttachmentsQuery.parse({ limit: "20", cursor: "abc" })).toEqual({ limit: 20, cursor: "abc" });
+
+    const usage = StorageUsage.parse({
+      usedBytes: 800,
+      quotaBytes: 1000,
+      maxFileBytes: 256,
+      usedRatio: 0.8,
+      state: "WARNING",
+    });
+    expect(usage.state).toBe("WARNING");
+    expect(() => StorageUsage.parse({ ...usage, quotaBytes: 0 })).toThrow();
   });
 
   it("waliduje treść komentarza (1-10 000 znaków, bez znaku NUL i nie same spacje) oraz parametry skrzynki", () => {

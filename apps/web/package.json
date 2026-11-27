@@ -16,14 +16,15 @@
     "permissions:register": "pnpm --filter @kivotasks/contracts build && node scripts/register-permissions.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1176.0",
+    "@kivotasks/client": "workspace:*",
+    "@kivotasks/contracts": "workspace:*",
+    "@kivotasks/db": "workspace:*",
     "@monorise-team/auth": "0.0.1-dev.28",
     "@monorise-team/events": "0.0.1-dev.28",
     "@monorise-team/permissions": "0.0.1-dev.28",
     "@monorise-team/sdk": "0.0.1-dev.28",
     "@monorise-team/ui": "0.0.1-dev.28",
-    "@kivotasks/client": "workspace:*",
-    "@kivotasks/contracts": "workspace:*",
-    "@kivotasks/db": "workspace:*",
     "jose": "^6.2.0",
     "lucide-react": "^1.77.0",
     "next": "^16.4.5",

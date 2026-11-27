@@ -42,7 +42,9 @@ export const IssueEventType = {
   PARENT_CHANGED: 'PARENT_CHANGED',
   RELATION_ADDED: 'RELATION_ADDED',
   RELATION_REMOVED: 'RELATION_REMOVED',
-  DELETED: 'DELETED'
+  DELETED: 'DELETED',
+  ATTACHMENT_ADDED: 'ATTACHMENT_ADDED',
+  ATTACHMENT_REMOVED: 'ATTACHMENT_REMOVED'
 } as const
 
 export type IssueEventType = (typeof IssueEventType)[keyof typeof IssueEventType]

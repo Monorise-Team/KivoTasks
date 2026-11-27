@@ -1,6 +1,7 @@
-# Lokalna baza do pracy nad KivoTasks:
-# - PostgreSQL (pnpm db:up, potem pnpm db:migrate) na porcie 5436, żeby nie zderzyć się z Core (5433), AvenMail (5434) i TimoTime (5435).
-# Kontener i wolumen mają przedrostek kivo-tasks (małe litery, wyrazy z myślnikiem).
+# Lokalne usługi do pracy nad KivoTasks:
+# - PostgreSQL (pnpm db:up, potem pnpm db:migrate) na porcie 5436, żeby nie zderzyć się z Core (5433), AvenMail (5434) i TimoTime (5435),
+# - magazyn plików MinIO zgodny z S3 (pnpm storage:up) na portach 9036 (API) i 9037 (konsola).
+# Kontenery i wolumeny mają przedrostek kivo-tasks (małe litery, wyrazy z myślnikiem).
 name: kivo-tasks
 
 services:
@@ -15,5 +16,19 @@ services:
       - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - kivo-tasks-postgres:/var/lib/postgresql/data
 
+  file-storage:
+    container_name: kivo-tasks-file-storage
+    image: cgr.dev/chainguard/minio:latest@sha256:b288eaa709ba2f799a39e9a8ceda71a08fabf90109b12c90badba9afff29485c
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: kivo_tasks_storage
+      MINIO_ROOT_PASSWORD: kivo_tasks_storage_local
+    ports:
+      - "127.0.0.1:9036:9000"
+      - "127.0.0.1:9037:9001"
+    volumes:
+      - kivo-tasks-file-storage:/data
+
 volumes:
   kivo-tasks-postgres:
+  kivo-tasks-file-storage:
