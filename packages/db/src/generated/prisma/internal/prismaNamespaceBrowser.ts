@@ -59,7 +59,13 @@ export const ModelName = {
   Label: 'Label',
   Issue: 'Issue',
   IssueLabel: 'IssueLabel',
-  IssueRelation: 'IssueRelation'
+  IssueRelation: 'IssueRelation',
+  IssueComment: 'IssueComment',
+  CommentMention: 'CommentMention',
+  CommentReaction: 'CommentReaction',
+  IssueEvent: 'IssueEvent',
+  IssueSubscriber: 'IssueSubscriber',
+  InboxItem: 'InboxItem'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -200,12 +206,99 @@ export const IssueRelationScalarFieldEnum = {
 export type IssueRelationScalarFieldEnum = (typeof IssueRelationScalarFieldEnum)[keyof typeof IssueRelationScalarFieldEnum]
 
 
+export const IssueCommentScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  teamId: 'teamId',
+  issueId: 'issueId',
+  authorAccountId: 'authorAccountId',
+  body: 'body',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+  editedAt: 'editedAt',
+  deletedAt: 'deletedAt'
+} as const
+
+export type IssueCommentScalarFieldEnum = (typeof IssueCommentScalarFieldEnum)[keyof typeof IssueCommentScalarFieldEnum]
+
+
+export const CommentMentionScalarFieldEnum = {
+  commentId: 'commentId',
+  accountId: 'accountId',
+  organizationId: 'organizationId',
+  createdAt: 'createdAt'
+} as const
+
+export type CommentMentionScalarFieldEnum = (typeof CommentMentionScalarFieldEnum)[keyof typeof CommentMentionScalarFieldEnum]
+
+
+export const CommentReactionScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  commentId: 'commentId',
+  accountId: 'accountId',
+  emoji: 'emoji',
+  createdAt: 'createdAt'
+} as const
+
+export type CommentReactionScalarFieldEnum = (typeof CommentReactionScalarFieldEnum)[keyof typeof CommentReactionScalarFieldEnum]
+
+
+export const IssueEventScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  teamId: 'teamId',
+  issueId: 'issueId',
+  actorAccountId: 'actorAccountId',
+  type: 'type',
+  before: 'before',
+  after: 'after',
+  createdAt: 'createdAt'
+} as const
+
+export type IssueEventScalarFieldEnum = (typeof IssueEventScalarFieldEnum)[keyof typeof IssueEventScalarFieldEnum]
+
+
+export const IssueSubscriberScalarFieldEnum = {
+  issueId: 'issueId',
+  accountId: 'accountId',
+  organizationId: 'organizationId',
+  createdAt: 'createdAt'
+} as const
+
+export type IssueSubscriberScalarFieldEnum = (typeof IssueSubscriberScalarFieldEnum)[keyof typeof IssueSubscriberScalarFieldEnum]
+
+
+export const InboxItemScalarFieldEnum = {
+  id: 'id',
+  organizationId: 'organizationId',
+  recipientAccountId: 'recipientAccountId',
+  kind: 'kind',
+  issueId: 'issueId',
+  actorAccountId: 'actorAccountId',
+  commentId: 'commentId',
+  createdAt: 'createdAt',
+  readAt: 'readAt',
+  archivedAt: 'archivedAt'
+} as const
+
+export type InboxItemScalarFieldEnum = (typeof InboxItemScalarFieldEnum)[keyof typeof InboxItemScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
 } as const
 
 export type SortOrder = (typeof SortOrder)[keyof typeof SortOrder]
+
+
+export const NullableJsonNullValueInput = {
+  DbNull: DbNull,
+  JsonNull: JsonNull
+} as const
+
+export type NullableJsonNullValueInput = (typeof NullableJsonNullValueInput)[keyof typeof NullableJsonNullValueInput]
 
 
 export const QueryMode = {
@@ -222,4 +315,13 @@ export const NullsOrder = {
 } as const
 
 export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
+
+
+export const JsonNullValueFilter = {
+  DbNull: DbNull,
+  JsonNull: JsonNull,
+  AnyNull: AnyNull
+} as const
+
+export type JsonNullValueFilter = (typeof JsonNullValueFilter)[keyof typeof JsonNullValueFilter]
 

@@ -27,3 +27,31 @@ export const IssueRelationType = {
 } as const
 
 export type IssueRelationType = (typeof IssueRelationType)[keyof typeof IssueRelationType]
+
+
+export const IssueEventType = {
+  CREATED: 'CREATED',
+  TITLE_CHANGED: 'TITLE_CHANGED',
+  DESCRIPTION_CHANGED: 'DESCRIPTION_CHANGED',
+  STATE_CHANGED: 'STATE_CHANGED',
+  PRIORITY_CHANGED: 'PRIORITY_CHANGED',
+  ASSIGNEE_CHANGED: 'ASSIGNEE_CHANGED',
+  LABELS_CHANGED: 'LABELS_CHANGED',
+  DUE_DATE_CHANGED: 'DUE_DATE_CHANGED',
+  ESTIMATE_CHANGED: 'ESTIMATE_CHANGED',
+  PARENT_CHANGED: 'PARENT_CHANGED',
+  RELATION_ADDED: 'RELATION_ADDED',
+  RELATION_REMOVED: 'RELATION_REMOVED',
+  DELETED: 'DELETED'
+} as const
+
+export type IssueEventType = (typeof IssueEventType)[keyof typeof IssueEventType]
+
+
+export const InboxItemKind = {
+  ASSIGNED: 'ASSIGNED',
+  MENTIONED: 'MENTIONED',
+  COMMENTED: 'COMMENTED'
+} as const
+
+export type InboxItemKind = (typeof InboxItemKind)[keyof typeof InboxItemKind]

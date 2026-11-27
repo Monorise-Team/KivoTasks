@@ -13,16 +13,37 @@ const anna: Actor = { organizationId: acme, accountId: uuidv7() };
 const bartek: Actor = { organizationId: acme, accountId: uuidv7() };
 const celina: Actor = { organizationId: globex, accountId: uuidv7() };
 
-const DOMAIN_TABLES = ["teams", "workflow_states", "labels", "issues", "issue_labels", "issue_relations"] as const;
+const DOMAIN_TABLES = [
+  "teams",
+  "workflow_states",
+  "labels",
+  "issues",
+  "issue_labels",
+  "issue_relations",
+  "issue_comments",
+  "comment_mentions",
+  "comment_reactions",
+  "issue_events",
+  "issue_subscribers",
+  "inbox_items",
+] as const;
 
 function expectForeignKeyError(error: unknown): void {
   expect(error).toBeInstanceOf(Prisma.PrismaClientKnownRequestError);
-  expect((error as Prisma.PrismaClientKnownRequestError).code).toBe("P2003");
+  const known = error as Prisma.PrismaClientKnownRequestError;
+  const isFk = known.code === "P2003" || (known.code === "P2010" && /23503|foreign key/i.test(known.message));
+  expect(isFk, `Oczekiwano błędu klucza obcego (P2003 / 23503), otrzymano ${known.code}: ${known.message}`).toBe(true);
 }
 
 afterAll(async () => {
   for (const actor of [anna, celina]) {
     await withUser(db, actor, async (tx) => {
+      await tx.$executeRaw`DELETE FROM "public"."inbox_items"`;
+      await tx.$executeRaw`DELETE FROM "public"."comment_reactions"`;
+      await tx.$executeRaw`DELETE FROM "public"."comment_mentions"`;
+      await tx.$executeRaw`DELETE FROM "public"."issue_comments"`;
+      await tx.$executeRaw`DELETE FROM "public"."issue_events"`;
+      await tx.$executeRaw`DELETE FROM "public"."issue_subscribers"`;
       await tx.issueRelation.deleteMany({});
       await tx.issueLabel.deleteMany({});
       await tx.issue.updateMany({ where: { parentId: { not: null } }, data: { parentId: null } });
@@ -553,6 +574,241 @@ describe("RLS i uprawnienia roli aplikacji kivo_tasks_app", () => {
     ).catch((e) => e);
     expect(reverseRelatedErr).toBeInstanceOf(Prisma.PrismaClientKnownRequestError);
     expect((reverseRelatedErr as Prisma.PrismaClientKnownRequestError).code).toBe("P2002");
+
+    // ── Tabele etapu 2a: RLS i złożone klucze obce (między firmami, między zespołami i między zadaniami) ──
+    const acmeCommentAId = uuidv7();
+    const acmeCommentBId = uuidv7();
+    const acmeEventAId = uuidv7();
+    const acmeInboxId = uuidv7();
+    const acmeReactionId = uuidv7();
+    const now = new Date();
+
+    await withUser(db, anna, async (tx) => {
+      await tx.$executeRaw`
+        INSERT INTO "public"."issue_comments"
+          ("id", "organization_id", "team_id", "issue_id", "author_account_id", "body", "created_at", "updated_at")
+        VALUES
+          (${acmeCommentAId}::uuid, ${acme}::uuid, ${acmeTeamAId}::uuid, ${acmeIssueAId}::uuid, ${anna.accountId}::uuid, 'Komentarz A', ${now}, ${now}),
+          (${acmeCommentBId}::uuid, ${acme}::uuid, ${acmeTeamBId}::uuid, ${acmeIssueBId}::uuid, ${anna.accountId}::uuid, 'Komentarz B', ${now}, ${now})
+      `;
+      await tx.$executeRaw`
+        INSERT INTO "public"."comment_mentions" ("comment_id", "account_id", "organization_id", "created_at")
+        VALUES (${acmeCommentAId}::uuid, ${bartek.accountId}::uuid, ${acme}::uuid, ${now})
+      `;
+      await tx.$executeRaw`
+        INSERT INTO "public"."comment_reactions" ("id", "organization_id", "comment_id", "account_id", "emoji", "created_at")
+        VALUES (${acmeReactionId}::uuid, ${acme}::uuid, ${acmeCommentAId}::uuid, ${bartek.accountId}::uuid, '👍', ${now})
+      `;
+      await tx.$executeRaw`
+        INSERT INTO "public"."issue_events" ("id", "organization_id", "team_id", "issue_id", "actor_account_id", "type", "before", "after", "created_at")
+        VALUES (${acmeEventAId}::uuid, ${acme}::uuid, ${acmeTeamAId}::uuid, ${acmeIssueAId}::uuid, ${anna.accountId}::uuid, 'CREATED'::"public"."IssueEventType", NULL, '{"title":"Zadanie A"}'::jsonb, ${now})
+      `;
+      await tx.$executeRaw`
+        INSERT INTO "public"."issue_subscribers" ("issue_id", "account_id", "organization_id", "created_at")
+        VALUES (${acmeIssueAId}::uuid, ${bartek.accountId}::uuid, ${acme}::uuid, ${now})
+      `;
+      await tx.$executeRaw`
+        INSERT INTO "public"."inbox_items" ("id", "organization_id", "recipient_account_id", "kind", "issue_id", "actor_account_id", "comment_id", "created_at")
+        VALUES (${acmeInboxId}::uuid, ${acme}::uuid, ${bartek.accountId}::uuid, 'MENTIONED'::"public"."InboxItemKind", ${acmeIssueAId}::uuid, ${anna.accountId}::uuid, ${acmeCommentAId}::uuid, ${now})
+      `;
+    });
+
+    // Celina (Globex) nie widzi żadnego wiersza etapu 2a z Acme, a zapytania bez withUser również zwracają 0
+    const countCollabTables = async (runner: Pick<typeof db, "$queryRaw">) => {
+      const [c, m, r, e, s, i] = await Promise.all([
+        runner.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM "public"."issue_comments"`,
+        runner.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM "public"."comment_mentions"`,
+        runner.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM "public"."comment_reactions"`,
+        runner.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM "public"."issue_events"`,
+        runner.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM "public"."issue_subscribers"`,
+        runner.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM "public"."inbox_items"`,
+      ]);
+      return {
+        comments: c[0]!.n,
+        mentions: m[0]!.n,
+        reactions: r[0]!.n,
+        events: e[0]!.n,
+        subscribers: s[0]!.n,
+        inbox: i[0]!.n,
+      };
+    };
+
+    expect(await withUser(db, bartek, (tx) => countCollabTables(tx))).toEqual({
+      comments: 2,
+      mentions: 1,
+      reactions: 1,
+      events: 1,
+      subscribers: 1,
+      inbox: 1,
+    });
+    expect(await withUser(db, celina, (tx) => countCollabTables(tx))).toEqual({
+      comments: 0,
+      mentions: 0,
+      reactions: 0,
+      events: 0,
+      subscribers: 0,
+      inbox: 0,
+    });
+    expect(await countCollabTables(db)).toEqual({
+      comments: 0,
+      mentions: 0,
+      reactions: 0,
+      events: 0,
+      subscribers: 0,
+      inbox: 0,
+    });
+
+    // Zapis z cudzym organization_id odrzucony przez RLS WITH CHECK na wszystkich 6 nowych tabelach
+    await expect(
+      withUser(
+        db,
+        celina,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."issue_comments" ("id","organization_id","team_id","issue_id","author_account_id","body","created_at","updated_at") VALUES (${uuidv7()}::uuid, ${acme}::uuid, ${acmeTeamAId}::uuid, ${acmeIssueAId}::uuid, ${celina.accountId}::uuid, 'Obcy', ${now}, ${now})`,
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withUser(
+        db,
+        celina,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."comment_mentions" ("comment_id","account_id","organization_id","created_at") VALUES (${acmeCommentAId}::uuid, ${celina.accountId}::uuid, ${acme}::uuid, ${now})`,
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withUser(
+        db,
+        celina,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."comment_reactions" ("id","organization_id","comment_id","account_id","emoji","created_at") VALUES (${uuidv7()}::uuid, ${acme}::uuid, ${acmeCommentAId}::uuid, ${celina.accountId}::uuid, '🚀', ${now})`,
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withUser(
+        db,
+        celina,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."issue_events" ("id","organization_id","team_id","issue_id","actor_account_id","type","created_at") VALUES (${uuidv7()}::uuid, ${acme}::uuid, ${acmeTeamAId}::uuid, ${acmeIssueAId}::uuid, ${celina.accountId}::uuid, 'DELETED'::"public"."IssueEventType", ${now})`,
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withUser(
+        db,
+        celina,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."issue_subscribers" ("issue_id","account_id","organization_id","created_at") VALUES (${acmeIssueAId}::uuid, ${celina.accountId}::uuid, ${acme}::uuid, ${now})`,
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withUser(
+        db,
+        celina,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."inbox_items" ("id","organization_id","recipient_account_id","kind","issue_id","actor_account_id","created_at") VALUES (${uuidv7()}::uuid, ${acme}::uuid, ${bartek.accountId}::uuid, 'ASSIGNED'::"public"."InboxItemKind", ${acmeIssueAId}::uuid, ${celina.accountId}::uuid, ${now})`,
+      ),
+    ).rejects.toThrow();
+
+    // Złożone klucze obce między firmami (organization_id = globex przechodzi RLS, ale wskazuje rekord Acme)
+    expectForeignKeyError(
+      await withUser(
+        db,
+        celina,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."issue_comments" ("id","organization_id","team_id","issue_id","author_account_id","body","created_at","updated_at") VALUES (${uuidv7()}::uuid, ${globex}::uuid, ${globexTeamId}::uuid, ${acmeIssueAId}::uuid, ${celina.accountId}::uuid, 'Obcy komentarz', ${now}, ${now})`,
+      ).catch((e) => e),
+    );
+    expectForeignKeyError(
+      await withUser(
+        db,
+        celina,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."comment_mentions" ("comment_id","account_id","organization_id","created_at") VALUES (${acmeCommentAId}::uuid, ${celina.accountId}::uuid, ${globex}::uuid, ${now})`,
+      ).catch((e) => e),
+    );
+    expectForeignKeyError(
+      await withUser(
+        db,
+        celina,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."comment_reactions" ("id","organization_id","comment_id","account_id","emoji","created_at") VALUES (${uuidv7()}::uuid, ${globex}::uuid, ${acmeCommentAId}::uuid, ${celina.accountId}::uuid, '👍', ${now})`,
+      ).catch((e) => e),
+    );
+    expectForeignKeyError(
+      await withUser(
+        db,
+        celina,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."issue_events" ("id","organization_id","team_id","issue_id","actor_account_id","type","created_at") VALUES (${uuidv7()}::uuid, ${globex}::uuid, ${globexTeamId}::uuid, ${acmeIssueAId}::uuid, ${celina.accountId}::uuid, 'CREATED'::"public"."IssueEventType", ${now})`,
+      ).catch((e) => e),
+    );
+    expectForeignKeyError(
+      await withUser(
+        db,
+        celina,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."issue_subscribers" ("issue_id","account_id","organization_id","created_at") VALUES (${acmeIssueAId}::uuid, ${celina.accountId}::uuid, ${globex}::uuid, ${now})`,
+      ).catch((e) => e),
+    );
+    expectForeignKeyError(
+      await withUser(
+        db,
+        celina,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."inbox_items" ("id","organization_id","recipient_account_id","kind","issue_id","actor_account_id","created_at") VALUES (${uuidv7()}::uuid, ${globex}::uuid, ${celina.accountId}::uuid, 'ASSIGNED'::"public"."InboxItemKind", ${acmeIssueAId}::uuid, ${anna.accountId}::uuid, ${now})`,
+      ).catch((e) => e),
+    );
+    expectForeignKeyError(
+      await withUser(
+        db,
+        celina,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."inbox_items" ("id","organization_id","recipient_account_id","kind","issue_id","actor_account_id","comment_id","created_at") VALUES (${uuidv7()}::uuid, ${globex}::uuid, ${celina.accountId}::uuid, 'MENTIONED'::"public"."InboxItemKind", ${globexIssueId}::uuid, ${anna.accountId}::uuid, ${acmeCommentAId}::uuid, ${now})`,
+      ).catch((e) => e),
+    );
+
+    // Złożone klucze obce między zespołami i zadaniami w tej samej firmie (Acme)
+    expectForeignKeyError(
+      await withUser(
+        db,
+        anna,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."issue_comments" ("id","organization_id","team_id","issue_id","author_account_id","body","created_at","updated_at") VALUES (${uuidv7()}::uuid, ${acme}::uuid, ${acmeTeamAId}::uuid, ${acmeIssueBId}::uuid, ${anna.accountId}::uuid, 'Zły zespół', ${now}, ${now})`,
+      ).catch((e) => e),
+    );
+    expectForeignKeyError(
+      await withUser(
+        db,
+        anna,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."issue_events" ("id","organization_id","team_id","issue_id","actor_account_id","type","created_at") VALUES (${uuidv7()}::uuid, ${acme}::uuid, ${acmeTeamAId}::uuid, ${acmeIssueBId}::uuid, ${anna.accountId}::uuid, 'CREATED'::"public"."IssueEventType", ${now})`,
+      ).catch((e) => e),
+    );
+    expectForeignKeyError(
+      await withUser(
+        db,
+        anna,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."inbox_items" ("id","organization_id","recipient_account_id","kind","issue_id","actor_account_id","comment_id","created_at") VALUES (${uuidv7()}::uuid, ${acme}::uuid, ${bartek.accountId}::uuid, 'COMMENTED'::"public"."InboxItemKind", ${acmeIssueAId}::uuid, ${anna.accountId}::uuid, ${acmeCommentBId}::uuid, ${now})`,
+      ).catch((e) => e),
+    );
+
+    // Ograniczenia CHECK: niedozwolone emoji oraz zakaz wpisu skrzynki dla sprawcy
+    await expect(
+      withUser(
+        db,
+        anna,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."comment_reactions" ("id","organization_id","comment_id","account_id","emoji","created_at") VALUES (${uuidv7()}::uuid, ${acme}::uuid, ${acmeCommentAId}::uuid, ${anna.accountId}::uuid, '🔥', ${now})`,
+      ),
+    ).rejects.toThrow();
+    await expect(
+      withUser(
+        db,
+        anna,
+        (tx) =>
+          tx.$executeRaw`INSERT INTO "public"."inbox_items" ("id","organization_id","recipient_account_id","kind","issue_id","actor_account_id","created_at") VALUES (${uuidv7()}::uuid, ${acme}::uuid, ${anna.accountId}::uuid, 'ASSIGNED'::"public"."InboxItemKind", ${acmeIssueAId}::uuid, ${anna.accountId}::uuid, ${now})`,
+      ),
+    ).rejects.toThrow();
   });
 
   it("atomowo przydziela kolejne numery zadań przy równoległym tworzeniu bez kolizji i luk", async () => {
