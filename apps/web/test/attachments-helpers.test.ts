@@ -12,7 +12,7 @@ import type { IssueEvent } from "@kivotasks/client";
 import { NextRequest } from "next/server";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatIssueEventText } from "@/app/app/activity-ui";
 import {
   escapeMarkdownLinkLabel,
@@ -33,10 +33,25 @@ import {
   formatMaxFileLimitMessage,
   isInlineAttachmentContentType,
   matchesIfNoneMatch,
+  MULTIPART_CONTENT_LENGTH_OVERHEAD_BYTES,
   sanitizeAttachmentFileName,
 } from "@/server/attachment-helpers";
+import { readBoundedMultipartBody } from "@/server/attachments-service";
 import { redactIssueEvent } from "@/server/collaboration-helpers";
-import { config, DEFAULT_ATTACHMENT_MAX_BYTES, DEFAULT_STORAGE_QUOTA_BYTES } from "@/server/config";
+import {
+  config,
+  DEFAULT_ATTACHMENT_MAX_BYTES,
+  DEFAULT_STORAGE_QUOTA_BYTES,
+  MAX_ALLOWED_ATTACHMENT_MAX_BYTES,
+  PROXY_CLIENT_MAX_BODY_SIZE_BYTES,
+  resetConfigWarningsForTests,
+} from "@/server/config";
+import {
+  resolveS3RuntimeConfig,
+  S3_CONNECTION_TIMEOUT_MS,
+  S3_MAX_ATTEMPTS,
+  S3_REQUEST_TIMEOUT_MS,
+} from "@/server/file-storage";
 
 const SAMPLE_UUID = "019a0000-0000-7000-8000-000000000001";
 const ANNA_ID = "019a0000-0000-7000-8000-000000000010";
@@ -101,9 +116,11 @@ describe("oczyszczanie nazwy pliku i nagłówek Content-Disposition", () => {
     expect(sanitizeAttachmentFileName("C:\\Users\\Anna\\Desktop\\raport.pdf")).toBe("raport.pdf");
     expect(sanitizeAttachmentFileName("a/b\\c/d.txt")).toBe("d.txt");
     expect(sanitizeAttachmentFileName("bez\u0000ster\u001f\u007f\u0085\u009f\u2028\u2029.txt")).toBe("bezster.txt");
-    // Bidi overrides (np. atak RLO U+202E zamieniający rozszerzenie) i izolacje U+2066–2069
+    // Bidi overrides (np. atak RLO U+202E zamieniający rozszerzenie), izolacje U+2066–2069,
+    // znaczniki kierunku U+200E/U+200F/U+061C oraz znaki zerowej szerokości U+200B–200D i U+FEFF
     expect(sanitizeAttachmentFileName("faktura\u202egnp.exe")).toBe("fakturagnp.exe");
     expect(sanitizeAttachmentFileName("a\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069b.png")).toBe("ab.png");
+    expect(sanitizeAttachmentFileName("x\u200e\u200f\u061c\u200b\u200c\u200d\ufeffy.pdf")).toBe("xy.pdf");
     expect(sanitizeAttachmentFileName("  raport    2026  .pdf  ")).toBe("raport 2026 .pdf");
     expect(sanitizeAttachmentFileName("...env")).toBe("env");
     expect(sanitizeAttachmentFileName(". . .tajne.txt")).toBe("tajne.txt");
@@ -116,6 +133,23 @@ describe("oczyszczanie nazwy pliku i nagłówek Content-Disposition", () => {
     expect(sanitizeAttachmentFileName(". . .")).toBe("plik");
     expect(sanitizeAttachmentFileName("katalog/")).toBe("plik");
     expect(sanitizeAttachmentFileName("\u0000\u001f\u202e")).toBe("plik");
+    expect(sanitizeAttachmentFileName("\u200b\u200c\u200d\u200e\u200f\u061c\ufeff")).toBe("plik");
+  });
+
+  it("naprawia osierocone surogaty UTF-16 (wysoki i niski) bez błędu 500 w Content-Disposition", () => {
+    const loneHigh = "raport\uD800koniec.pdf";
+    const loneLow = "raport\uDC00koniec.pdf";
+    const reversed = "\uDC00\uD800.png";
+
+    for (const raw of [loneHigh, loneLow, reversed]) {
+      const sanitized = sanitizeAttachmentFileName(raw);
+      expect(sanitized.isWellFormed()).toBe(true);
+      expect(sanitized).toContain("\uFFFD");
+      expect(() => encodeURIComponent(sanitized)).not.toThrow();
+      expect(() => buildContentDisposition(sanitized, "application/octet-stream")).not.toThrow();
+      // Również wywołanie buildContentDisposition bezpośrednio z surowym osieroconym surogatem nie rzuca
+      expect(() => buildContentDisposition(raw, "image/png")).not.toThrow();
+    }
   });
 
   it("przycina nazwę do 255 jednostek kodu UTF-16 bez rozcinania pary surogatów", () => {
@@ -267,6 +301,54 @@ describe("Markdown: obrazy i linki względne wyłącznie dla /api/v1/attachments
     expect(html).not.toContain('href="https://evil.test/tracker.png"');
     expect(html).toContain("![zewnętrzny](https://evil.test/tracker.png)");
   });
+
+  it("parsuje w czasie liniowym złośliwe wejścia 50 000 znaków (ochrona przed ReDoS / O(N^2))", () => {
+    const adversarialInputs: readonly { name: string; input: string }[] = [
+      { name: "50k '['", input: "[".repeat(50_000) },
+      { name: "50k '!['", input: "![".repeat(25_000) },
+      { name: "50k '@['", input: "@[".repeat(24_970) },
+      { name: "50k '*'", input: "*".repeat(50_000) },
+      { name: "50k '* '", input: "* ".repeat(25_000) },
+      { name: "50k '** '", input: "** ".repeat(16_666) },
+      { name: "50k '`'", input: "`".repeat(50_000) },
+      { name: "50k '~~'", input: "~~".repeat(25_000) },
+      { name: "50k '[a](' + ')'", input: `${"[a](".repeat(12_000)})` },
+      {
+        name: "50k mieszany",
+        input: `${"@[x![y[z*a**b`c~~d](".repeat(2_500)})`.slice(0, 50_000),
+      },
+    ];
+
+    for (const { name, input } of adversarialInputs) {
+      const startedAt = performance.now();
+      const blocks = parseMarkdownBlocks(input);
+      const elapsedMs = performance.now() - startedAt;
+      expect(blocks.length, `Wejście ${name} powinno zwrócić co najmniej jeden blok`).toBeGreaterThan(0);
+      expect(elapsedMs, `Parsowanie ${name} trwało ${elapsedMs.toFixed(1)} ms`).toBeLessThan(250);
+    }
+
+    // Nieescapowany '[' w etykiecie nie pochłania wewnętrznego poprawnego linku; limity etykiety i URL są egzekwowane
+    const nested = parseMarkdownBlocks("[prefix [dokument](https://monorise.studio)");
+    expect(nested[0]).toEqual({
+      type: "paragraph",
+      children: [
+        { type: "text", value: "[prefix " },
+        { type: "link", href: "https://monorise.studio/", label: "dokument" },
+      ],
+    });
+
+    const overlongLabel = `[${"a".repeat(501)}](https://monorise.studio)`;
+    expect(parseMarkdownBlocks(overlongLabel)[0]).toEqual({
+      type: "paragraph",
+      children: [{ type: "text", value: overlongLabel }],
+    });
+
+    const overlongUrl = `[ok](https://monorise.studio/${"x".repeat(2040)})`;
+    expect(parseMarkdownBlocks(overlongUrl)[0]).toEqual({
+      type: "paragraph",
+      children: [{ type: "text", value: overlongUrl }],
+    });
+  });
 });
 
 describe("pomocniki UI załączników, aktywność i redakcja zdarzeń", () => {
@@ -381,6 +463,7 @@ describe("konfiguracja S3 i limitów załączników w config.ts oraz przepuszcza
 
   beforeEach(() => {
     process.env = { ...originalEnv };
+    resetConfigWarningsForTests();
     delete process.env.KIVOTASKS_S3_ENDPOINT;
     delete process.env.KIVOTASKS_S3_REGION;
     delete process.env.KIVOTASKS_S3_BUCKET;
@@ -393,6 +476,8 @@ describe("konfiguracja S3 i limitów załączników w config.ts oraz przepuszcza
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
+    resetConfigWarningsForTests();
     process.env = { ...originalEnv };
   });
 
@@ -435,6 +520,82 @@ describe("konfiguracja S3 i limitów załączników w config.ts oraz przepuszcza
     expect(config.s3ForcePathStyle).toBe(false);
   });
 
+  it("przycina KIVOTASKS_ATTACHMENT_MAX_BYTES do limitu proxy minus narzut multipart z pojedynczym ostrzeżeniem", () => {
+    expect(PROXY_CLIENT_MAX_BODY_SIZE_BYTES).toBe(28_311_552);
+    expect(MAX_ALLOWED_ATTACHMENT_MAX_BYTES).toBe(
+      PROXY_CLIENT_MAX_BODY_SIZE_BYTES - MULTIPART_CONTENT_LENGTH_OVERHEAD_BYTES,
+    );
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    process.env.KIVOTASKS_ATTACHMENT_MAX_BYTES = String(PROXY_CLIENT_MAX_BODY_SIZE_BYTES);
+
+    expect(config.attachmentMaxBytes).toBe(MAX_ALLOWED_ATTACHMENT_MAX_BYTES);
+    expect(config.attachmentMaxBytes).toBe(MAX_ALLOWED_ATTACHMENT_MAX_BYTES);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolveS3RuntimeConfig odrzuca częściowe poświadczenia, wymaga jawnego bucketu w produkcji i ustawia timeouty", () => {
+    const base = {
+      endpoint: "",
+      region: "eu-central-1",
+      bucket: "kivo-tasks-attachments",
+      bucketExplicitlySet: false,
+      forcePathStyle: false,
+      accessKeyId: "",
+      secretAccessKey: "",
+      nodeEnv: "development",
+    };
+
+    // Dev bez statycznych poświadczeń -> ok, rola IAM, limity czasu i prób
+    const devDefault = resolveS3RuntimeConfig(base);
+    expect(devDefault.ok).toBe(true);
+    if (devDefault.ok) {
+      expect(devDefault.bucket).toBe("kivo-tasks-attachments");
+      expect(devDefault.clientConfig.credentials).toBeUndefined();
+      expect(devDefault.clientConfig.maxAttempts).toBe(S3_MAX_ATTEMPTS);
+      expect(devDefault.clientConfig.requestHandler).toEqual({
+        connectionTimeout: S3_CONNECTION_TIMEOUT_MS,
+        requestTimeout: S3_REQUEST_TIMEOUT_MS,
+      });
+    }
+
+    // Oba poświadczenia ustawione -> ok ze statycznymi poświadczeniami
+    const withCreds = resolveS3RuntimeConfig({
+      ...base,
+      endpoint: "http://127.0.0.1:9036",
+      forcePathStyle: true,
+      accessKeyId: "key",
+      secretAccessKey: "secret",
+    });
+    expect(withCreds.ok).toBe(true);
+    if (withCreds.ok) {
+      expect(withCreds.clientConfig.credentials).toEqual({ accessKeyId: "key", secretAccessKey: "secret" });
+      expect(withCreds.clientConfig.endpoint).toBe("http://127.0.0.1:9036");
+    }
+
+    // Tylko jeden z kluczy -> błąd konfiguracji
+    const onlyAccessKey = resolveS3RuntimeConfig({ ...base, accessKeyId: "key" });
+    expect(onlyAccessKey.ok).toBe(false);
+    const onlySecretKey = resolveS3RuntimeConfig({ ...base, secretAccessKey: "secret" });
+    expect(onlySecretKey.ok).toBe(false);
+
+    // Produkcja bez jawnego KIVOTASKS_S3_BUCKET -> błąd konfiguracji
+    const prodNoBucket = resolveS3RuntimeConfig({ ...base, nodeEnv: "production", bucketExplicitlySet: false });
+    expect(prodNoBucket.ok).toBe(false);
+
+    // Produkcja z jawnym bucketem -> ok
+    const prodWithBucket = resolveS3RuntimeConfig({
+      ...base,
+      nodeEnv: "production",
+      bucket: "prod-kivo-attachments",
+      bucketExplicitlySet: true,
+    });
+    expect(prodWithBucket.ok).toBe(true);
+    if (prodWithBucket.ok) {
+      expect(prodWithBucket.bucket).toBe("prod-kivo-attachments");
+    }
+  });
+
   it("route() przepuszcza surową odpowiedź Response z X-Request-Id i CORS, a błędy nadal zwraca jako JSON", async () => {
     process.env.KIVOTASKS_ALLOWED_ORIGINS = "https://panel.acme.test";
 
@@ -470,5 +631,49 @@ describe("konfiguracja S3 i limitów załączników w config.ts oraz przepuszcza
     expect(errBody.data).toBeNull();
     expect(errBody.error.code).toBe("PAYLOAD_TOO_LARGE");
     expect(errBody.meta.requestId).toMatch(/^req_/);
+  });
+
+  it("readBoundedMultipartBody przerywa kodem 413 strumień bez Content-Length po przekroczeniu limitu", async () => {
+    const chunkSize = 1024;
+    const totalChunks = 10;
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulled >= totalChunks) {
+          controller.close();
+          return;
+        }
+        pulled += 1;
+        controller.enqueue(new Uint8Array(chunkSize));
+      },
+    });
+
+    const req = new NextRequest("http://kivo.localhost:3500/api/v1/upload", {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=---test" },
+      body: stream,
+      duplex: "half",
+    } as ConstructorParameters<typeof NextRequest>[1] & { duplex: "half" });
+    expect(req.headers.get("content-length")).toBeNull();
+
+    const error = await readBoundedMultipartBody(req, 3000, 1024).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ApiFailure);
+    expect(error).toMatchObject({ status: 413, code: "PAYLOAD_TOO_LARGE" });
+    expect(pulled).toBeLessThan(totalChunks);
+
+    // Strumień mieszczący się w limicie odczytuje się w całości
+    const smallReq = new NextRequest("http://kivo.localhost:3500/api/v1/upload", {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=---test" },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array([1, 2]));
+          controller.enqueue(new Uint8Array([3, 4]));
+          controller.close();
+        },
+      }),
+      duplex: "half",
+    } as ConstructorParameters<typeof NextRequest>[1] & { duplex: "half" });
+    expect(await readBoundedMultipartBody(smallReq, 10, 10)).toEqual(new Uint8Array([1, 2, 3, 4]));
   });
 });

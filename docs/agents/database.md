@@ -69,6 +69,11 @@ Limit miejsca firmy pilnowany jest atomowo w transakcji `withUser` przez:
 2. transakcyjną blokadę doradczą firmy `pg_advisory_xact_lock(hashtextextended('kivotasks:storage:' || organization_id, 0))`,
 3. sumę `SUM(size_bytes) WHERE deleted_at IS NULL` dla firmy (korzystającą z indeksu częściowego `issue_attachments_active_usage_idx`); przekroczenie limitu przerywa transakcję błędem `409 STORAGE_QUOTA_EXCEEDED`, a serwer usuwa zapisany obiekt z S3 best-effort.
 
+Kolejność blokad dla załączników to wszędzie **`issues` → `issue_attachments`**:
+
+- `softDeleteIssue`: po blokadzie hierarchii `issue_hierarchy:<teamId>` i miękkim usunięciu wiersza w `issues` miękko usuwa aktywne załączniki tego zadania (`UPDATE "public"."issue_attachments" SET "deleted_at" = ... WHERE "issue_id" = ... AND "deleted_at" IS NULL RETURNING "storage_key"`), zwalniając miejsce firmy w tej samej transakcji i zwracając klucze S3 do usunięcia best-effort po zatwierdzeniu (odpięte podzadania nie są usuwane, więc ich załączniki pozostają aktywne).
+- `softDeleteIssueAttachment`: najpierw blokuje wiersz zadania nadrzędnego `FOR UPDATE OF i` (jak `createIssueAttachment`), a dopiero potem aktualizuje wiersz w `issue_attachments` i zapisuje `ATTACHMENT_REMOVED` w `issue_events`, dzięki czemu nie dochodzi do zakleszczeń z `softDeleteIssue` ani blokadą `FOR KEY SHARE` klucza obcego.
+
 ## Funkcje pomocnicze RLS i `withUser`
 
 Migracja początkowa definiuje dwie stabilne funkcje SQL odczytujące zmienne lokalne transakcji:

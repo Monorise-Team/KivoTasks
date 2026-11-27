@@ -606,6 +606,37 @@ describe("walidacja rozmiaru, pustego/brakującego pliku, limit miejsca i wyści
     expect(tooLargeFile.status).toBe(413);
     expect(tooLargeFile.body.error.code).toBe("PAYLOAD_TOO_LARGE");
 
+    // 413 dla strumieniowego body bez Content-Length (chunked / HTTP/2) przekraczającego limit + narzut multipart
+    const chunkSize = 16 * 1024;
+    const totalChunks = 16; // 256 KiB > 1024 + 64 KiB
+    let chunksPulled = 0;
+    const streamedBody = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (chunksPulled >= totalChunks) {
+          controller.close();
+          return;
+        }
+        chunksPulled += 1;
+        controller.enqueue(new Uint8Array(chunkSize));
+      },
+    });
+    const streamedReq = new NextRequest(`${BASE}/issues/${issueId}/attachments`, {
+      method: "POST",
+      headers: {
+        host: "kivo.localhost:3500",
+        authorization: `Bearer ${annaToken}`,
+        "content-type": "multipart/form-data; boundary=---stream-test",
+      },
+      body: streamedBody,
+      duplex: "half",
+    } as ConstructorParameters<typeof NextRequest>[1] & { duplex: "half" });
+    expect(streamedReq.headers.get("content-length")).toBeNull();
+    const streamedRes = await issueAttachmentsRoute.POST(streamedReq, { params: Promise.resolve({ issueId }) });
+    const streamedJson = (await streamedRes.json()) as TestEnvelope;
+    expect(streamedRes.status).toBe(413);
+    expect(streamedJson.error.code).toBe("PAYLOAD_TOO_LARGE");
+    expect(chunksPulled).toBeLessThan(totalChunks);
+
     // Pusty plik -> 422
     const emptyFile = await callUpload(issueId, {
       file: { bytes: new Uint8Array(0), name: "pusty.txt" },
@@ -725,6 +756,13 @@ describe("uprawnienia, izolacja zespołów i firm, usuwanie, historia aktywnośc
       omitDefaultOrigin: true,
     });
     expect(missingOrigin.status).toBe(403);
+
+    const nullOrigin = await callUpload(issueId, {
+      file: { bytes: makePngBytes(64), name: "null-origin.png" },
+      headers: { cookie: "monorise-session=x", origin: "null" },
+    });
+    expect(nullOrigin.status).toBe(403);
+    expect(nullOrigin.body.error.code).toBe("PERMISSION_DENIED");
     restoreAnnaSession();
 
     // Anna wysyła dwa pliki
@@ -916,14 +954,47 @@ describe("uprawnienia, izolacja zespołów i firm, usuwanie, historia aktywnośc
     });
   });
 
-  it("zwraca 404 dla metadanych i zawartości załącznika, gdy zadanie zostało miękko usunięte", async () => {
+  it("przy miękkim usunięciu zadania zwalnia miejsce firmy, usuwa obiekty z MinIO, zwraca 404 i nie rusza załączników odpiętych podzadań", async () => {
     const issueId = await createMagazynIssue("Zadanie do usunięcia");
-    const uploaded = await callUpload(issueId, {
-      file: { bytes: makePngBytes(80), name: "plik.png" },
+    const subIssueRes = await callJson(issuesRoute.POST, "/issues", {
+      method: "POST",
+      body: { teamId: unitMagazynId, title: "Podzadanie zachowane", parentId: issueId },
       token: annaToken,
     });
-    expect(uploaded.status).toBe(201);
-    const attachmentId = uploaded.body.data.id as string;
+    expect(subIssueRes.status).toBe(201);
+    const subIssueId = subIssueRes.body.data.id as string;
+
+    const up1 = await callUpload(issueId, {
+      file: { bytes: makePngBytes(80), name: "plik1.png" },
+      token: annaToken,
+    });
+    const up2 = await callUpload(issueId, {
+      file: { bytes: makePngBytes(120), name: "plik2.png" },
+      token: annaToken,
+    });
+    const subUp = await callUpload(subIssueId, {
+      file: { bytes: makePngBytes(50), name: "podzadanie.png" },
+      token: annaToken,
+    });
+    expect(up1.status).toBe(201);
+    expect(up2.status).toBe(201);
+    expect(subUp.status).toBe(201);
+
+    const att1Id = up1.body.data.id as string;
+    const att2Id = up2.body.data.id as string;
+    const subAttId = subUp.body.data.id as string;
+    const att1Key = buildAttachmentStorageKey({ organizationId: acme.id, issueId, attachmentId: att1Id });
+    const att2Key = buildAttachmentStorageKey({ organizationId: acme.id, issueId, attachmentId: att2Id });
+    const subAttKey = buildAttachmentStorageKey({
+      organizationId: acme.id,
+      issueId: subIssueId,
+      attachmentId: subAttId,
+    });
+
+    expect((await callJson(storageRoute.GET, "/storage", { token: annaToken })).body.data.usedBytes).toBe(250);
+    expect(await objectExistsInS3(att1Key)).toBe(true);
+    expect(await objectExistsInS3(att2Key)).toBe(true);
+    expect(await objectExistsInS3(subAttKey)).toBe(true);
 
     const delIssue = await callJson(
       issueByIdRoute.DELETE,
@@ -933,11 +1004,26 @@ describe("uprawnienia, izolacja zespołów i firm, usuwanie, historia aktywnośc
     );
     expect(delIssue.status).toBe(204);
 
+    // Załączniki usuniętego zadania zwracają 404, nie liczą się do limitu firmy i zniknęły z MinIO
     expect(
-      (await callJson(attachmentByIdRoute.GET, `/attachments/${attachmentId}`, { token: annaToken }, { attachmentId }))
-        .status,
+      (
+        await callJson(
+          attachmentByIdRoute.GET,
+          `/attachments/${att1Id}`,
+          { token: annaToken },
+          { attachmentId: att1Id },
+        )
+      ).status,
     ).toBe(404);
-    expect((await callContent(attachmentId, { token: annaToken })).status).toBe(404);
+    expect((await callContent(att1Id, { token: annaToken })).status).toBe(404);
+    expect((await callContent(att2Id, { token: annaToken })).status).toBe(404);
+    expect(await objectExistsInS3(att1Key)).toBe(false);
+    expect(await objectExistsInS3(att2Key)).toBe(false);
+
+    // Podzadanie zostało odpięte (nie usunięte), więc jego załącznik i zużycie 50 B pozostają aktywne
+    expect((await callJson(storageRoute.GET, "/storage", { token: annaToken })).body.data.usedBytes).toBe(50);
+    expect(await objectExistsInS3(subAttKey)).toBe(true);
+    expect((await callContent(subAttId, { token: annaToken })).status).toBe(200);
   });
 
   it("odmawia (403) usunięcia własnego załącznika osobie, która utraciła uprawnienie kivotasks.issues.write", async () => {
