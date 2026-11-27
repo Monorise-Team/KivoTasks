@@ -145,7 +145,7 @@ export function CommentEditor({
 
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
-      if (!busy && value.trim().length > 0) {
+      if (!busy && !uploadingAttachment && value.trim().length > 0) {
         void onSubmit();
       }
     }

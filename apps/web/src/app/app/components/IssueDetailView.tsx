@@ -169,6 +169,7 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
         setIssue(detail);
         setTitleDraft(detail.title);
         setDescriptionDraft(detail.description ?? "");
+        setDescriptionPreview(false);
         setEstimateDraft(detail.estimate !== null ? String(detail.estimate) : "");
         setLoadError(null);
         setActionError(null);
@@ -178,6 +179,7 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
         if (cancelled) return;
         const status = error instanceof ApiError ? error.status : 500;
         setIssue(null);
+        setDescriptionPreview(false);
         setLoadError({
           status,
           message: formatApiError(error, "Nie udało się wczytać szczegółów zadania."),
@@ -341,7 +343,7 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
       setActionError(null);
       try {
         const fileName = resolveUploadedFileName(file);
-        const created = await client.issues.uploadAttachment(issue.id, file, fileName);
+        const created = await client.attachments.upload(issue.id, file, fileName);
         setAttachmentsRevision((prev) => prev + 1);
         setActivityRevision((prev) => prev + 1);
         refreshStorageUsage();
@@ -759,7 +761,7 @@ export function IssueDetailView({ identifier }: { identifier: string }) {
                     >
                       {descriptionUploading ? "Wysyłanie…" : "Załącz plik"}
                     </Button>
-                    {descriptionDraft.trim().length > 0 ? (
+                    {descriptionPreview || descriptionDraft.trim().length > 0 ? (
                       <Button
                         type="button"
                         variant="ghost"

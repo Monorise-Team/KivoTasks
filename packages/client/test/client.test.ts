@@ -195,7 +195,7 @@ describe("klient API KivoTasks", () => {
     const listClient = createClient({
       fetch: fakeFetch(200, { data: [], meta: { nextCursor: "att-2" }, error: null }, seen),
     });
-    expect(await listClient.issues.listAttachments("i-1", { limit: 10, cursor: "att-1" })).toEqual({
+    expect(await listClient.attachments.list("i-1", { limit: 10, cursor: "att-1" })).toEqual({
       items: [],
       nextCursor: "att-2",
     });
@@ -206,7 +206,7 @@ describe("klient API KivoTasks", () => {
       fetch: fakeFetch(201, { data: { id: "att-1", fileName: "zrzut.png" }, meta: {}, error: null }, seen),
     });
     const blob = new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" });
-    await uploadClient.issues.uploadAttachment("i-1", blob, "zrzut.png");
+    await uploadClient.attachments.upload("i-1", blob, "zrzut.png");
     expect(seen.url).toBe("/api/v1/issues/i-1/attachments");
     expect(seen.init?.method).toBe("POST");
     expect(seen.init?.body).toBeInstanceOf(FormData);

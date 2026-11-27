@@ -64,8 +64,8 @@ export function IssueAttachmentsSection({
 
   useEffect(() => {
     let cancelled = false;
-    client.issues
-      .listAttachments(issueId, { limit: ATTACHMENTS_PAGE_LIMIT })
+    client.attachments
+      .list(issueId, { limit: ATTACHMENTS_PAGE_LIMIT })
       .then((page) => {
         if (cancelled) return;
         setState({
@@ -117,7 +117,7 @@ export function IssueAttachmentsSection({
       const file = fileList[i]!;
       const entry = batch[i]!;
       try {
-        const created = await client.issues.uploadAttachment(issueId, file, entry.fileName);
+        const created = await client.attachments.upload(issueId, file, entry.fileName);
         uploadedAny = true;
         setState((prev) => {
           if (!prev) {
@@ -191,7 +191,7 @@ export function IssueAttachmentsSection({
     setLoadingMore(true);
     setActionError(null);
     try {
-      const page = await client.issues.listAttachments(issueId, {
+      const page = await client.attachments.list(issueId, {
         limit: ATTACHMENTS_PAGE_LIMIT,
         cursor: nextCursor,
       });
@@ -358,7 +358,11 @@ export function IssueAttachmentsSection({
 
               <div className="flex shrink-0 items-center gap-1">
                 <Button asChild variant="ghost" size="xs" icon={<Download aria-hidden />}>
-                  <a href={attachment.contentUrl} download={attachment.fileName}>
+                  <a
+                    href={attachment.contentUrl}
+                    download={attachment.fileName}
+                    aria-label={`Pobierz ${attachment.fileName}`}
+                  >
                     Pobierz
                   </a>
                 </Button>
@@ -368,6 +372,7 @@ export function IssueAttachmentsSection({
                     variant="ghost"
                     size="xs"
                     icon={<Trash2 aria-hidden />}
+                    aria-label={`Usuń załącznik ${attachment.fileName}`}
                     className="text-danger hover:text-danger"
                     onClick={() => setDeleteTarget(attachment)}
                   >
@@ -404,7 +409,11 @@ export function IssueAttachmentsSection({
           previewAttachment ? (
             <div className="flex justify-end gap-2">
               <Button asChild variant="secondary" size="sm" icon={<Download aria-hidden />}>
-                <a href={previewAttachment.contentUrl} download={previewAttachment.fileName}>
+                <a
+                  href={previewAttachment.contentUrl}
+                  download={previewAttachment.fileName}
+                  aria-label={`Pobierz ${previewAttachment.fileName}`}
+                >
                   Pobierz
                 </a>
               </Button>

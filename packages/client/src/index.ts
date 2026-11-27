@@ -257,16 +257,6 @@ export function createClient({ baseUrl = "", getToken, fetch: fetchImpl = fetch 
       subscribe: (issueId: string) =>
         request<IssueSubscription>("PUT", `/issues/${encodeSegment(issueId)}/subscription`),
       unsubscribe: (issueId: string) => requestVoid("DELETE", `/issues/${encodeSegment(issueId)}/subscription`),
-      listAttachments: (issueId: string, query?: IssueAttachmentsQuery) =>
-        requestPaginated<IssueAttachment>(
-          "GET",
-          `/issues/${encodeSegment(issueId)}/attachments${buildCursorQuery(query)}`,
-        ),
-      uploadAttachment: (issueId: string, file: Blob, fileName: string) => {
-        const formData = new FormData();
-        formData.append("file", file, fileName);
-        return request<IssueAttachment>("POST", `/issues/${encodeSegment(issueId)}/attachments`, formData);
-      },
     },
     attachments: {
       list: (issueId: string, query?: IssueAttachmentsQuery) =>
