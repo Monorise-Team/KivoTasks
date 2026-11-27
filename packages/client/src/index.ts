@@ -6,16 +6,28 @@ import {
   API_PREFIX,
   type ApiErrorBody,
   type ApiResponse,
+  type CommentReactionEmoji,
+  type CommentReactionsResult,
+  type CreateIssueCommentInput,
   type CreateIssueInput,
   type CreateIssueRelationInput,
   type CreateLabelInput,
   type CreateTeamInput,
   type CreateWorkflowStateInput,
   type ErrorCode,
+  type InboxItem,
+  type InboxListQuery,
+  type InboxReadAllResult,
+  type InboxUnreadCount,
+  type IssueActivityItem,
+  type IssueActivityQuery,
+  type IssueComment,
+  type IssueCommentsQuery,
   type IssueDetail,
   type IssueListItem,
   type IssueListQuery,
   type IssueRelationView,
+  type IssueSubscription,
   type Label,
   type LabelsList,
   type Me,
@@ -25,6 +37,8 @@ import {
   type TeamCandidatesList,
   type TeamMembersList,
   type TeamsList,
+  type UpdateInboxItemInput,
+  type UpdateIssueCommentInput,
   type UpdateIssueInput,
   type UpdateLabelInput,
   type UpdateTeamInput,
@@ -74,6 +88,25 @@ function buildIssueListQuery(query?: IssueListQuery): string {
   if (query.q !== undefined) params.set("q", query.q);
   if (query.includeCompleted !== undefined) params.set("includeCompleted", String(query.includeCompleted));
   if (query.sort !== undefined) params.set("sort", query.sort);
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.cursor !== undefined) params.set("cursor", query.cursor);
+  const serialized = params.toString();
+  return serialized ? `?${serialized}` : "";
+}
+
+function buildCursorQuery(query?: { limit?: unknown; cursor?: string }): string {
+  if (!query) return "";
+  const params = new URLSearchParams();
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.cursor !== undefined) params.set("cursor", query.cursor);
+  const serialized = params.toString();
+  return serialized ? `?${serialized}` : "";
+}
+
+function buildInboxQuery(query?: InboxListQuery): string {
+  if (!query) return "";
+  const params = new URLSearchParams();
+  if (query.filter !== undefined) params.set("filter", query.filter);
   if (query.limit !== undefined) params.set("limit", String(query.limit));
   if (query.cursor !== undefined) params.set("cursor", query.cursor);
   const serialized = params.toString();
@@ -187,6 +220,39 @@ export function createClient({ baseUrl = "", getToken, fetch: fetchImpl = fetch 
         request<IssueRelationView>("POST", `/issues/${encodeSegment(issueId)}/relations`, input),
       deleteRelation: (issueId: string, relationId: string) =>
         requestVoid("DELETE", `/issues/${encodeSegment(issueId)}/relations/${encodeSegment(relationId)}`),
+      listComments: (issueId: string, query?: IssueCommentsQuery) =>
+        requestPaginated<IssueComment>("GET", `/issues/${encodeSegment(issueId)}/comments${buildCursorQuery(query)}`),
+      createComment: (issueId: string, input: CreateIssueCommentInput) =>
+        request<IssueComment>("POST", `/issues/${encodeSegment(issueId)}/comments`, input),
+      updateComment: (issueId: string, commentId: string, input: UpdateIssueCommentInput) =>
+        request<IssueComment>("PATCH", `/issues/${encodeSegment(issueId)}/comments/${encodeSegment(commentId)}`, input),
+      deleteComment: (issueId: string, commentId: string) =>
+        requestVoid("DELETE", `/issues/${encodeSegment(issueId)}/comments/${encodeSegment(commentId)}`),
+      addReaction: (issueId: string, commentId: string, emoji: CommentReactionEmoji) =>
+        request<CommentReactionsResult>(
+          "PUT",
+          `/issues/${encodeSegment(issueId)}/comments/${encodeSegment(commentId)}/reactions/${encodeSegment(emoji)}`,
+        ),
+      removeReaction: (issueId: string, commentId: string, emoji: CommentReactionEmoji) =>
+        requestVoid(
+          "DELETE",
+          `/issues/${encodeSegment(issueId)}/comments/${encodeSegment(commentId)}/reactions/${encodeSegment(emoji)}`,
+        ),
+      listActivity: (issueId: string, query?: IssueActivityQuery) =>
+        requestPaginated<IssueActivityItem>(
+          "GET",
+          `/issues/${encodeSegment(issueId)}/activity${buildCursorQuery(query)}`,
+        ),
+      subscribe: (issueId: string) =>
+        request<IssueSubscription>("PUT", `/issues/${encodeSegment(issueId)}/subscription`),
+      unsubscribe: (issueId: string) => requestVoid("DELETE", `/issues/${encodeSegment(issueId)}/subscription`),
+    },
+    inbox: {
+      list: (query?: InboxListQuery) => requestPaginated<InboxItem>("GET", `/inbox${buildInboxQuery(query)}`),
+      unreadCount: () => request<InboxUnreadCount>("GET", "/inbox/unread-count"),
+      update: (itemId: string, input: UpdateInboxItemInput) =>
+        request<InboxItem>("PATCH", `/inbox/${encodeSegment(itemId)}`, input),
+      markAllRead: () => request<InboxReadAllResult>("POST", "/inbox/read-all"),
     },
     search: {
       issues: (q: string) => request<SearchIssuesResult>("GET", `/search?q=${encodeURIComponent(q)}`),
@@ -196,7 +262,11 @@ export function createClient({ baseUrl = "", getToken, fetch: fetchImpl = fetch 
 
 export {
   COLOR_TOKENS,
+  COMMENT_REACTION_EMOJIS,
   DEFAULT_WORKFLOW_STATES,
+  INBOX_FILTERS,
+  INBOX_ITEM_KINDS,
+  ISSUE_EVENT_TYPES,
   ISSUE_PRIORITIES,
   ISSUE_PRIORITY_LABELS,
   ISSUE_RELATION_DIRECTIONS,
@@ -206,13 +276,33 @@ export {
   WORKFLOW_STATE_CATEGORIES,
   type Capabilities,
   type ColorToken,
+  type CommentReactionEmoji,
+  type CommentReactionSummary,
+  type CommentReactionsResult,
   type CoreUnitType,
+  type CreateIssueCommentInput,
   type CreateIssueInput,
   type CreateIssueRelationInput,
   type CreateLabelInput,
   type CreateTeamInput,
   type CreateWorkflowStateInput,
+  type InboxFilter,
+  type InboxIssueSummary,
+  type InboxItem,
+  type InboxItemKind,
+  type InboxListQuery,
+  type InboxReadAllResult,
+  type InboxUnreadCount,
+  type IssueActivityCommentItem,
+  type IssueActivityEventItem,
+  type IssueActivityItem,
+  type IssueActivityQuery,
+  type IssueComment,
+  type IssueCommentsQuery,
   type IssueDetail,
+  type IssueEvent,
+  type IssueEventPayload,
+  type IssueEventType,
   type IssueLabelSummary,
   type IssueListItem,
   type IssueListQuery,
@@ -225,6 +315,7 @@ export {
   type IssueRelationViewType,
   type IssueSort,
   type IssueStateSummary,
+  type IssueSubscription,
   type Label,
   type LabelsList,
   type Me,
@@ -236,6 +327,8 @@ export {
   type TeamMember,
   type TeamMembersList,
   type TeamsList,
+  type UpdateInboxItemInput,
+  type UpdateIssueCommentInput,
   type UpdateIssueInput,
   type UpdateLabelInput,
   type UpdateTeamInput,

@@ -1,11 +1,18 @@
 import "server-only";
 import type {
   ColorToken,
+  CommentReactionEmoji,
+  CommentReactionsResult,
+  InboxFilter,
+  InboxItem,
+  IssueActivityItem,
+  IssueComment,
   IssueDetail,
   IssueListItem,
   IssueRelationType,
   IssueRelationView,
   IssueSort,
+  IssueSubscription,
   Label,
   PaginatedResult,
   Team,
@@ -15,6 +22,7 @@ import type {
   WorkflowStateCategory,
 } from "@kivotasks/contracts";
 import type { Actor } from "@kivotasks/db";
+import type { ActivityCursorPayload, TimeIdCursorPayload } from "./collaboration-helpers";
 import type { IssueCursorPayload } from "./issue-helpers";
 import { prismaIssuesStore } from "./issues-store-prisma";
 import type { TeamFilterScope } from "./permissions";
@@ -89,6 +97,40 @@ export interface IssueRelationRecordInfo {
   relatedIssueTeamId: string;
 }
 
+export interface CommentLocation {
+  id: string;
+  issueId: string;
+  teamId: string;
+  authorAccountId: string;
+  deletedAt: string | null;
+}
+
+export interface ListIssueCommentsStoreParams {
+  issueId: string;
+  limit: number;
+  cursor?: TimeIdCursorPayload;
+}
+
+export interface ListIssueActivityStoreParams {
+  issueId: string;
+  limit: number;
+  cursor?: ActivityCursorPayload;
+}
+
+export interface ListInboxStoreParams {
+  readableTeamIds: TeamFilterScope;
+  filter: InboxFilter;
+  limit: number;
+  cursor?: TimeIdCursorPayload;
+}
+
+export interface UpdateInboxItemStoreParams {
+  itemId: string;
+  readableTeamIds: TeamFilterScope;
+  read?: boolean;
+  archived?: boolean;
+}
+
 export type IssueLookup = { type: "id"; id: string } | { type: "identifier"; key: string; number: number };
 
 export interface IssuesStore {
@@ -148,6 +190,40 @@ export interface IssuesStore {
 
   // Search
   searchIssues(actor: Actor, params: SearchIssuesStoreParams): Promise<IssueListItem[]>;
+
+  // Comments & reactions
+  listIssueComments(actor: Actor, params: ListIssueCommentsStoreParams): Promise<PaginatedResult<IssueComment>>;
+  findCommentLocation(actor: Actor, issueId: string, commentId: string): Promise<CommentLocation | null>;
+  createIssueComment(
+    actor: Actor,
+    input: { issueId: string; teamId: string; body: string; mentionedAccountIds: string[] },
+  ): Promise<IssueComment>;
+  updateIssueComment(
+    actor: Actor,
+    input: { issueId: string; commentId: string; body: string; mentionedAccountIds: string[] },
+  ): Promise<IssueComment | null>;
+  softDeleteIssueComment(actor: Actor, issueId: string, commentId: string): Promise<boolean>;
+  addCommentReaction(
+    actor: Actor,
+    input: { issueId: string; commentId: string; emoji: CommentReactionEmoji },
+  ): Promise<CommentReactionsResult | null>;
+  removeCommentReaction(
+    actor: Actor,
+    input: { issueId: string; commentId: string; emoji: CommentReactionEmoji },
+  ): Promise<boolean>;
+
+  // Activity
+  listIssueActivity(actor: Actor, params: ListIssueActivityStoreParams): Promise<PaginatedResult<IssueActivityItem>>;
+
+  // Subscriptions
+  subscribeIssue(actor: Actor, issueId: string): Promise<IssueSubscription | null>;
+  unsubscribeIssue(actor: Actor, issueId: string): Promise<boolean>;
+
+  // Inbox
+  listInboxItems(actor: Actor, params: ListInboxStoreParams): Promise<PaginatedResult<InboxItem>>;
+  getInboxUnreadCount(actor: Actor, readableTeamIds: TeamFilterScope): Promise<number>;
+  updateInboxItem(actor: Actor, params: UpdateInboxItemStoreParams): Promise<InboxItem | null>;
+  markAllInboxRead(actor: Actor, readableTeamIds: TeamFilterScope): Promise<number>;
 }
 
 export function getIssuesStore(): IssuesStore {

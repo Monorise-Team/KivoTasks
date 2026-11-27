@@ -6,6 +6,9 @@ import {
   ApiListMeta,
   apiListSuccessSchema,
   apiSuccessSchema,
+  COMMENT_REACTION_EMOJIS,
+  CommentReactionEmoji,
+  CreateIssueCommentInput,
   CreateIssueInput,
   CreateIssueRelationInput,
   CreateLabelInput,
@@ -14,6 +17,9 @@ import {
   DEFAULT_WORKFLOW_STATES,
   ERROR_CODES,
   Health,
+  INBOX_ITEM_KINDS,
+  InboxListQuery,
+  ISSUE_EVENT_TYPES,
   IssueList,
   IssueListQuery,
   KIVOTASKS_PERMISSION_MANIFEST,
@@ -21,6 +27,8 @@ import {
   KIVOTASKS_ROLE_TEMPLATES,
   Me,
   TeamKey,
+  UpdateInboxItemInput,
+  UpdateIssueCommentInput,
 } from "../src/index.js";
 
 /** Minimalny schemat żądania `PUT /core/v1/products/{productKey}/role-templates` zgodny z MonoriseCore. */
@@ -250,5 +258,37 @@ describe("schematy etapu 1a: zespoły, statusy, etykiety i zadania", () => {
 
     expect(() => IssueListQuery.parse({ assignee: "invalid-assignee" })).toThrow();
     expect(() => IssueListQuery.parse({ limit: 101 })).toThrow();
+  });
+});
+
+describe("schematy etapu 2a: komentarze, reakcje, historia i skrzynka", () => {
+  it("definiuje stały zestaw 6 emoji reakcji, 13 typów zdarzeń historii i 3 rodzaje wpisów skrzynki", () => {
+    expect(COMMENT_REACTION_EMOJIS).toEqual(["👍", "❤️", "🎉", "😄", "👀", "🚀"]);
+    expect(CommentReactionEmoji.parse("🚀")).toBe("🚀");
+    expect(() => CommentReactionEmoji.parse("🔥")).toThrow();
+
+    expect(ISSUE_EVENT_TYPES).toHaveLength(13);
+    expect(ISSUE_EVENT_TYPES).toContain("CREATED");
+    expect(ISSUE_EVENT_TYPES).toContain("DESCRIPTION_CHANGED");
+    expect(ISSUE_EVENT_TYPES).toContain("RELATION_REMOVED");
+    expect(ISSUE_EVENT_TYPES).toContain("DELETED");
+
+    expect(INBOX_ITEM_KINDS).toEqual(["ASSIGNED", "MENTIONED", "COMMENTED"]);
+  });
+
+  it("waliduje treść komentarza (1-10 000 znaków, nie same spacje) oraz parametry skrzynki", () => {
+    expect(CreateIssueCommentInput.parse({ body: "Gotowe do przeglądu" })).toEqual({ body: "Gotowe do przeglądu" });
+    expect(() => CreateIssueCommentInput.parse({ body: "" })).toThrow();
+    expect(() => CreateIssueCommentInput.parse({ body: "   \n\t " })).toThrow();
+    expect(() => CreateIssueCommentInput.parse({ body: "a".repeat(10_001) })).toThrow();
+    expect(() => UpdateIssueCommentInput.parse({ body: "   " })).toThrow();
+
+    expect(InboxListQuery.parse({})).toEqual({ filter: "all", limit: 50 });
+    expect(InboxListQuery.parse({ filter: "unread", limit: "20" })).toEqual({ filter: "unread", limit: 20 });
+    expect(() => InboxListQuery.parse({ filter: "archived" })).toThrow();
+
+    expect(UpdateInboxItemInput.parse({ read: true })).toEqual({ read: true });
+    expect(UpdateInboxItemInput.parse({ archived: true })).toEqual({ archived: true });
+    expect(() => UpdateInboxItemInput.parse({})).toThrow();
   });
 });

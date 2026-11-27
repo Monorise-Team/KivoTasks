@@ -108,3 +108,45 @@ export async function listTeamMembersWithAccount(organizationId: string, teamId:
 
   return members;
 }
+
+/**
+ * Best-effort rozwiązuje imiona i nazwiska osób z firmy dla wskazanych `accountId`
+ * przez katalog produktu MonoriseCore (`core:directory.read`). Błąd Core nigdy nie przerywa odczytu.
+ */
+export async function tryResolveOrganizationMemberNames(
+  organizationId: string,
+  neededAccountIds: ReadonlySet<string>,
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  if (neededAccountIds.size === 0) {
+    return names;
+  }
+
+  const wanted = new Set<string>();
+  for (const id of neededAccountIds) {
+    wanted.add(id.toLowerCase());
+  }
+
+  try {
+    const core = getMachineCoreClient();
+    for await (const employee of paginate(core.listProductDirectoryEmployees, {
+      path: { productKey: KIVOTASKS_PERMISSIONS.product },
+      query: { organizationId, limit: CORE_DIRECTORY_BATCH_SIZE },
+    })) {
+      if (employee.accountId === null) continue;
+      const key = employee.accountId.toLowerCase();
+      if (!wanted.has(key)) continue;
+      const fullName = `${employee.firstName} ${employee.lastName}`.trim();
+      if (fullName) {
+        names.set(key, fullName);
+      }
+      if (names.size >= wanted.size) {
+        break;
+      }
+    }
+  } catch {
+    // Best-effort: interfejs ma bezpieczny tekst zastępczy, gdy katalog Core jest niedostępny.
+  }
+
+  return names;
+}

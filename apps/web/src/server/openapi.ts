@@ -17,9 +17,21 @@ import {
   apiSuccessSchema,
   Capabilities,
   ColorToken,
+  CommentReactionEmoji,
+  CommentReactionSummary,
   CoreUnitType,
   ErrorCode,
   Health,
+  InboxFilter,
+  InboxIssueSummary,
+  InboxItem,
+  InboxItemKind,
+  IssueActivityCommentItem,
+  IssueActivityEventItem,
+  IssueActivityItem,
+  IssueComment,
+  IssueEvent,
+  IssueEventType,
   IssueLabelSummary,
   IssueListItem,
   IssuePriority,
@@ -187,6 +199,18 @@ function buildSchemaRegistry(routes: readonly RouteDefinition[]) {
   register("IssueReference", IssueReference);
   register("IssueRelationView", IssueRelationView);
   register("IssueListItem", IssueListItem);
+  register("CommentReactionEmoji", CommentReactionEmoji);
+  register("CommentReactionSummary", CommentReactionSummary);
+  register("IssueComment", IssueComment);
+  register("IssueEventType", IssueEventType);
+  register("IssueEvent", IssueEvent);
+  register("IssueActivityCommentItem", IssueActivityCommentItem);
+  register("IssueActivityEventItem", IssueActivityEventItem);
+  register("IssueActivityItem", IssueActivityItem);
+  register("InboxItemKind", InboxItemKind);
+  register("InboxFilter", InboxFilter);
+  register("InboxIssueSummary", InboxIssueSummary);
+  register("InboxItem", InboxItem);
 
   const responseEnvelopes = new Map<string, z.ZodType>();
   for (const route of routes) {
