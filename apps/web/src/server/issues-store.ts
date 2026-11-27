@@ -77,6 +77,7 @@ export interface SearchIssuesStoreParams {
 export interface IssueLocation {
   id: string;
   teamId: string;
+  teamName: string;
   assigneeAccountId: string | null;
 }
 

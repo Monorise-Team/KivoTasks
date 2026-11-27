@@ -10,6 +10,7 @@ import {
   type IssueRelationView,
   type PaginatedResult,
   type SearchIssuesResult,
+  type TeamMember,
 } from "@kivotasks/contracts";
 import { ApiFailure } from "./api";
 import type { Caller } from "./auth";
@@ -22,6 +23,7 @@ import {
   parseIssueIdentifier,
 } from "./issue-helpers";
 import { getIssuesStore, type AssigneeStoreFilter, type IssueLookup, type ParentStoreFilter } from "./issues-store";
+import { notifyIssueAssigned, resolveAssignmentActorName, shouldNotifyIssueAssignment } from "./notifications";
 import {
   canReadTeam,
   canReadTeamIssues,
@@ -34,7 +36,11 @@ import {
 
 const SEARCH_MAX_RESULTS = 20;
 
-async function assertAssigneeIsTeamMember(organizationId: string, teamId: string, accountId: string): Promise<void> {
+async function assertAssigneeIsTeamMember(
+  organizationId: string,
+  teamId: string,
+  accountId: string,
+): Promise<TeamMember[]> {
   const members = await listTeamMembersWithAccount(organizationId, teamId);
   const found = members.some((member) => member.accountId === accountId);
   if (!found) {
@@ -45,6 +51,7 @@ async function assertAssigneeIsTeamMember(organizationId: string, teamId: string
       },
     ]);
   }
+  return members;
 }
 
 function queryParamsToRecord(searchParams: URLSearchParams): Record<string, string> {
@@ -118,11 +125,12 @@ export async function createIssue(caller: Caller, rawInput: unknown): Promise<Is
     throw new ApiFailure(403, "PERMISSION_DENIED", PERMISSION_DENIED_MESSAGE);
   }
 
+  let teamMembers: TeamMember[] = [];
   if (input.assigneeAccountId) {
-    await assertAssigneeIsTeamMember(caller.organizationId, input.teamId, input.assigneeAccountId);
+    teamMembers = await assertAssigneeIsTeamMember(caller.organizationId, input.teamId, input.assigneeAccountId);
   }
 
-  return getIssuesStore().createIssue(caller, {
+  const created = await getIssuesStore().createIssue(caller, {
     teamId: input.teamId,
     title: input.title,
     description: input.description ?? null,
@@ -135,6 +143,25 @@ export async function createIssue(caller: Caller, rawInput: unknown): Promise<Is
     estimate: input.estimate ?? null,
     parentId: input.parentId ?? null,
   });
+
+  if (
+    created.assigneeAccountId &&
+    shouldNotifyIssueAssignment({
+      previousAssigneeAccountId: null,
+      nextAssigneeAccountId: created.assigneeAccountId,
+      actorAccountId: caller.accountId,
+    })
+  ) {
+    await notifyIssueAssigned({
+      organizationId: caller.organizationId,
+      recipientAccountId: created.assigneeAccountId,
+      issue: created,
+      teamName: team.name,
+      actorName: resolveAssignmentActorName(caller, teamMembers),
+    });
+  }
+
+  return created;
 }
 
 export async function getIssue(caller: Caller, idOrIdentifier: string): Promise<IssueDetail> {
@@ -180,12 +207,13 @@ export async function updateIssue(caller: Caller, issueId: string, rawInput: unk
     ]);
   }
 
+  let teamMembers: TeamMember[] = [];
   if (
     input.assigneeAccountId !== undefined &&
     input.assigneeAccountId !== null &&
     input.assigneeAccountId !== existing.assigneeAccountId
   ) {
-    await assertAssigneeIsTeamMember(caller.organizationId, existing.teamId, input.assigneeAccountId);
+    teamMembers = await assertAssigneeIsTeamMember(caller.organizationId, existing.teamId, input.assigneeAccountId);
   }
 
   const visibleTeams = readableIssueTeamsFilter(snapshot);
@@ -209,6 +237,25 @@ export async function updateIssue(caller: Caller, issueId: string, rawInput: unk
   if (!updated) {
     throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono zadania");
   }
+
+  if (
+    input.assigneeAccountId !== undefined &&
+    updated.assigneeAccountId &&
+    shouldNotifyIssueAssignment({
+      previousAssigneeAccountId: existing.assigneeAccountId,
+      nextAssigneeAccountId: updated.assigneeAccountId,
+      actorAccountId: caller.accountId,
+    })
+  ) {
+    await notifyIssueAssigned({
+      organizationId: caller.organizationId,
+      recipientAccountId: updated.assigneeAccountId,
+      issue: updated,
+      teamName: existing.teamName,
+      actorName: resolveAssignmentActorName(caller, teamMembers),
+    });
+  }
+
   return updated;
 }
 

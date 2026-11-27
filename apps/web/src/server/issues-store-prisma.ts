@@ -950,12 +950,15 @@ export const prismaIssuesStore: IssuesStore = {
   },
 
   async findIssueLocationById(actor, issueId): Promise<IssueLocation | null> {
-    return withUser(getDb(), actor, (tx) =>
+    const row = await withUser(getDb(), actor, (tx) =>
       tx.issue.findFirst({
         where: { id: issueId, deletedAt: null, team: { archivedAt: null } },
-        select: { id: true, teamId: true, assigneeAccountId: true },
+        select: { id: true, teamId: true, assigneeAccountId: true, team: { select: { name: true } } },
       }),
     );
+    return row
+      ? { id: row.id, teamId: row.teamId, teamName: row.team.name, assigneeAccountId: row.assigneeAccountId }
+      : null;
   },
 
   async findIssueDetail(actor, lookup: IssueLookup, readableTeamIds: TeamFilterScope): Promise<IssueDetail | null> {
