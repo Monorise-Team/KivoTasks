@@ -8,7 +8,12 @@
 
 const ALLOWED_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 
-const MENTION_REGEX = /@\[([^\]\r\n]{1,120})\]\(([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)/i;
+const MAX_MARKDOWN_LABEL_LENGTH = 500;
+const MAX_MARKDOWN_URL_LENGTH = 2048;
+// Każdy znak w etykiecie może być sekwencją ucieczki `\[` lub `\]` (2 jednostki kodu UTF-16).
+const MAX_RAW_LABEL_CODE_UNITS = MAX_MARKDOWN_LABEL_LENGTH * 2;
+
+const MENTION_REGEX = /@\[([^[\]\r\n]{1,120})\]\(([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)/iy;
 
 /**
  * Ścisły wzorzec ścieżki względnej do zawartości załącznika KivoTasks (wyłącznie małe litery UUID,
@@ -17,8 +22,8 @@ const MENTION_REGEX = /@\[([^\]\r\n]{1,120})\]\(([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f
 const ATTACHMENT_CONTENT_PATH_REGEX =
   /^\/api\/v1\/attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/content$/;
 
-const IMAGE_REGEX = /^!\[((?:\\[[\]]|[^\\\]\r\n]|\\(?![[\]\r\n]))*)\]\(([^)\r\n]+)\)/;
-const LINK_REGEX = /^\[((?:\\[[\]]|[^\\\]\r\n]|\\(?![[\]\r\n]))+)\]\(([^)\r\n]+)\)/;
+const IMAGE_REGEX = /!\[((?:\\[[\]]|[^[\]\\\r\n]|\\(?![[\]\r\n])){0,500})\]\(([^)\r\n]{1,2048})\)/y;
+const LINK_REGEX = /\[((?:\\[[\]]|[^[\]\\\r\n]|\\(?![[\]\r\n])){1,500})\]\(([^)\r\n]{1,2048})\)/y;
 
 function unescapeMarkdownBrackets(value: string): string {
   return value.replace(/\\([[\]])/g, "$1");
@@ -87,6 +92,215 @@ function appendText(nodes: MarkdownInlineNode[], chunk: string): void {
   }
 }
 
+function parseInlineInternal(
+  text: string,
+  normalizedMentions: ReadonlySet<string> | null,
+  depth: number,
+): MarkdownInlineNode[] {
+  const nodes: MarkdownInlineNode[] = [];
+
+  let nextNewline = text.indexOf("\n", 0);
+  let nextCloseBracket = text.indexOf("]", 0);
+  let nextCloseParen = text.indexOf(")", 0);
+  let noMoreBacktick = false;
+  let noMoreDoubleStar = false;
+  let noMoreDoubleTilde = false;
+  let noMoreSingleStar = false;
+
+  let index = 0;
+  let plainStart = 0;
+
+  const flushPlain = (end: number) => {
+    if (end > plainStart) {
+      appendText(nodes, text.slice(plainStart, end));
+    }
+  };
+
+  while (index < text.length) {
+    const ch = text[index]!;
+
+    // Złamanie linii
+    if (ch === "\n") {
+      flushPlain(index);
+      nodes.push({ type: "break" });
+      index += 1;
+      plainStart = index;
+      continue;
+    }
+
+    // Kod śródliniowy: `...`
+    if (ch === "`" && !noMoreBacktick) {
+      if (nextNewline !== -1 && nextNewline < index + 1) {
+        nextNewline = text.indexOf("\n", index + 1);
+      }
+      const end = text.indexOf("`", index + 1);
+      if (end === -1) {
+        noMoreBacktick = true;
+      } else if (end > index + 1 && (nextNewline === -1 || nextNewline > end)) {
+        flushPlain(index);
+        nodes.push({ type: "code", value: text.slice(index + 1, end) });
+        index = end + 1;
+        plainStart = index;
+        continue;
+      }
+    }
+
+    // Wzmianka: @[Imię Nazwisko](uuid) — renderowana jako wzmianka tylko dla zweryfikowanych kont
+    if (ch === "@" && text.charCodeAt(index + 1) === 91 /* [ */) {
+      if (nextCloseBracket !== -1 && nextCloseBracket < index + 2) {
+        nextCloseBracket = text.indexOf("]", index + 2);
+      }
+      if (nextCloseParen !== -1 && nextCloseParen < index + 4) {
+        nextCloseParen = text.indexOf(")", index + 4);
+      }
+      if (
+        nextCloseBracket !== -1 &&
+        nextCloseParen !== -1 &&
+        nextCloseBracket <= index + 122 &&
+        nextCloseParen <= index + 160
+      ) {
+        MENTION_REGEX.lastIndex = index;
+        const mentionMatch = MENTION_REGEX.exec(text);
+        if (mentionMatch) {
+          flushPlain(index);
+          const label = mentionMatch[1]!;
+          const accountId = mentionMatch[2]!.toLowerCase();
+          if (normalizedMentions?.has(accountId)) {
+            nodes.push({ type: "mention", accountId, label });
+          } else {
+            appendText(nodes, mentionMatch[0]);
+          }
+          index = MENTION_REGEX.lastIndex;
+          plainStart = index;
+          continue;
+        }
+      }
+    }
+
+    // Obraz załącznika: ![alt](/api/v1/attachments/<uuid>/content) — każdy inny ![...](...) zostaje zwykłym tekstem
+    if (ch === "!" && text.charCodeAt(index + 1) === 91 /* [ */) {
+      if (nextCloseBracket !== -1 && nextCloseBracket < index + 2) {
+        nextCloseBracket = text.indexOf("]", index + 2);
+      }
+      if (nextCloseParen !== -1 && nextCloseParen < index + 4) {
+        nextCloseParen = text.indexOf(")", index + 4);
+      }
+      if (
+        nextCloseBracket !== -1 &&
+        nextCloseParen !== -1 &&
+        nextCloseBracket - index <= MAX_RAW_LABEL_CODE_UNITS + 2 &&
+        nextCloseParen - index <= MAX_RAW_LABEL_CODE_UNITS + MAX_MARKDOWN_URL_LENGTH + 4
+      ) {
+        IMAGE_REGEX.lastIndex = index;
+        const imageMatch = IMAGE_REGEX.exec(text);
+        if (imageMatch) {
+          flushPlain(index);
+          const rawAlt = imageMatch[1]!;
+          const rawSrc = imageMatch[2]!;
+          if (isAttachmentContentUrl(rawSrc)) {
+            nodes.push({ type: "image", src: rawSrc, alt: unescapeMarkdownBrackets(rawAlt) });
+          } else {
+            appendText(nodes, imageMatch[0]);
+          }
+          index = IMAGE_REGEX.lastIndex;
+          plainStart = index;
+          continue;
+        }
+      }
+    }
+
+    // Odnośnik: [tekst](url)
+    if (ch === "[") {
+      if (nextCloseBracket !== -1 && nextCloseBracket < index + 1) {
+        nextCloseBracket = text.indexOf("]", index + 1);
+      }
+      if (nextCloseParen !== -1 && nextCloseParen < index + 3) {
+        nextCloseParen = text.indexOf(")", index + 3);
+      }
+      if (
+        nextCloseBracket !== -1 &&
+        nextCloseParen !== -1 &&
+        nextCloseBracket - index <= MAX_RAW_LABEL_CODE_UNITS + 1 &&
+        nextCloseParen - index <= MAX_RAW_LABEL_CODE_UNITS + MAX_MARKDOWN_URL_LENGTH + 3
+      ) {
+        LINK_REGEX.lastIndex = index;
+        const linkMatch = LINK_REGEX.exec(text);
+        if (linkMatch) {
+          flushPlain(index);
+          const label = unescapeMarkdownBrackets(linkMatch[1]!);
+          const safeUrl = sanitizeMarkdownUrl(linkMatch[2]!);
+          if (safeUrl) {
+            nodes.push({ type: "link", href: safeUrl, label });
+          } else {
+            appendText(nodes, label);
+          }
+          index = LINK_REGEX.lastIndex;
+          plainStart = index;
+          continue;
+        }
+      }
+    }
+
+    // Pogrubienie: **...**
+    if (depth < 4 && ch === "*" && text.charCodeAt(index + 1) === 42 /* * */ && !noMoreDoubleStar) {
+      const end = text.indexOf("**", index + 2);
+      if (end === -1) {
+        noMoreDoubleStar = true;
+      } else if (end > index + 2 && text.charCodeAt(index + 2) !== 32 && text.charCodeAt(end - 1) !== 32) {
+        flushPlain(index);
+        const inner = text.slice(index + 2, end);
+        nodes.push({ type: "strong", children: parseInlineInternal(inner, normalizedMentions, depth + 1) });
+        index = end + 2;
+        plainStart = index;
+        continue;
+      }
+    }
+
+    // Przekreślenie: ~~...~~
+    if (depth < 4 && ch === "~" && text.charCodeAt(index + 1) === 126 /* ~ */ && !noMoreDoubleTilde) {
+      const end = text.indexOf("~~", index + 2);
+      if (end === -1) {
+        noMoreDoubleTilde = true;
+      } else if (end > index + 2) {
+        flushPlain(index);
+        const inner = text.slice(index + 2, end);
+        nodes.push({ type: "del", children: parseInlineInternal(inner, normalizedMentions, depth + 1) });
+        index = end + 2;
+        plainStart = index;
+        continue;
+      }
+    }
+
+    // Kursywa: *...*
+    if (depth < 4 && ch === "*" && text.charCodeAt(index + 1) !== 42 /* * */ && !noMoreSingleStar) {
+      if (nextNewline !== -1 && nextNewline < index + 1) {
+        nextNewline = text.indexOf("\n", index + 1);
+      }
+      const end = text.indexOf("*", index + 1);
+      if (end === -1) {
+        noMoreSingleStar = true;
+      } else if (
+        end > index + 1 &&
+        text.charCodeAt(index + 1) !== 32 &&
+        text.charCodeAt(end - 1) !== 32 &&
+        (nextNewline === -1 || nextNewline > end)
+      ) {
+        flushPlain(index);
+        const inner = text.slice(index + 1, end);
+        nodes.push({ type: "em", children: parseInlineInternal(inner, normalizedMentions, depth + 1) });
+        index = end + 1;
+        plainStart = index;
+        continue;
+      }
+    }
+
+    index += 1;
+  }
+
+  flushPlain(text.length);
+  return nodes;
+}
+
 /**
  * Parsuje tekst śródliniowy Markdown (kod, zweryfikowane wzmianki, bezpieczne linki, pogrubienie,
  * kursywa, przekreślenie, złamania linii). Surowy HTML zawsze zostaje zwykłym tekstem.
@@ -96,122 +310,10 @@ export function parseMarkdownInline(
   mentionedAccountIds?: ReadonlySet<string>,
   depth = 0,
 ): MarkdownInlineNode[] {
-  const nodes: MarkdownInlineNode[] = [];
   const normalizedMentions = mentionedAccountIds
     ? new Set([...mentionedAccountIds].map((id) => id.toLowerCase()))
     : null;
-
-  let index = 0;
-  while (index < text.length) {
-    const rest = text.slice(index);
-
-    // Złamanie linii
-    if (rest.startsWith("\n")) {
-      nodes.push({ type: "break" });
-      index += 1;
-      continue;
-    }
-
-    // Kod śródliniowy: `...`
-    if (rest.startsWith("`")) {
-      const end = text.indexOf("`", index + 1);
-      if (end > index + 1 && !text.slice(index + 1, end).includes("\n")) {
-        nodes.push({ type: "code", value: text.slice(index + 1, end) });
-        index = end + 1;
-        continue;
-      }
-    }
-
-    // Wzmianka: @[Imię Nazwisko](uuid) — renderowana jako wzmianka tylko dla zweryfikowanych kont
-    if (rest.startsWith("@[")) {
-      const mentionMatch = MENTION_REGEX.exec(rest);
-      if (mentionMatch && mentionMatch.index === 0) {
-        const label = mentionMatch[1]!;
-        const accountId = mentionMatch[2]!.toLowerCase();
-        if (normalizedMentions?.has(accountId)) {
-          nodes.push({ type: "mention", accountId, label });
-        } else {
-          appendText(nodes, mentionMatch[0]);
-        }
-        index += mentionMatch[0].length;
-        continue;
-      }
-    }
-
-    // Obraz załącznika: ![alt](/api/v1/attachments/<uuid>/content) — każdy inny ![...](...) zostaje zwykłym tekstem
-    if (rest.startsWith("![")) {
-      const imageMatch = IMAGE_REGEX.exec(rest);
-      if (imageMatch) {
-        const rawAlt = imageMatch[1]!;
-        const rawSrc = imageMatch[2]!;
-        if (isAttachmentContentUrl(rawSrc)) {
-          nodes.push({ type: "image", src: rawSrc, alt: unescapeMarkdownBrackets(rawAlt) });
-        } else {
-          appendText(nodes, imageMatch[0]);
-        }
-        index += imageMatch[0].length;
-        continue;
-      }
-    }
-
-    // Odnośnik: [tekst](url)
-    if (rest.startsWith("[")) {
-      const linkMatch = LINK_REGEX.exec(rest);
-      if (linkMatch) {
-        const label = unescapeMarkdownBrackets(linkMatch[1]!);
-        const safeUrl = sanitizeMarkdownUrl(linkMatch[2]!);
-        if (safeUrl) {
-          nodes.push({ type: "link", href: safeUrl, label });
-        } else {
-          appendText(nodes, label);
-        }
-        index += linkMatch[0].length;
-        continue;
-      }
-    }
-
-    // Pogrubienie: **...**
-    if (depth < 4 && rest.startsWith("**")) {
-      const end = text.indexOf("**", index + 2);
-      if (end > index + 2) {
-        const inner = text.slice(index + 2, end);
-        if (!inner.startsWith(" ") && !inner.endsWith(" ")) {
-          nodes.push({ type: "strong", children: parseMarkdownInline(inner, mentionedAccountIds, depth + 1) });
-          index = end + 2;
-          continue;
-        }
-      }
-    }
-
-    // Przekreślenie: ~~...~~
-    if (depth < 4 && rest.startsWith("~~")) {
-      const end = text.indexOf("~~", index + 2);
-      if (end > index + 2) {
-        const inner = text.slice(index + 2, end);
-        nodes.push({ type: "del", children: parseMarkdownInline(inner, mentionedAccountIds, depth + 1) });
-        index = end + 2;
-        continue;
-      }
-    }
-
-    // Kursywa: *...*
-    if (depth < 4 && rest.startsWith("*") && !rest.startsWith("**")) {
-      const end = text.indexOf("*", index + 1);
-      if (end > index + 1) {
-        const inner = text.slice(index + 1, end);
-        if (!inner.startsWith(" ") && !inner.endsWith(" ") && !inner.includes("\n")) {
-          nodes.push({ type: "em", children: parseMarkdownInline(inner, mentionedAccountIds, depth + 1) });
-          index = end + 1;
-          continue;
-        }
-      }
-    }
-
-    appendText(nodes, text[index]!);
-    index += 1;
-  }
-
-  return nodes;
+  return parseInlineInternal(text, normalizedMentions, depth);
 }
 
 const HEADING_REGEX = /^(#{1,4})\s+(.+)$/;
