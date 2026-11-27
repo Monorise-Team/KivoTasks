@@ -7,11 +7,12 @@
  * - bezpieczne parsowanie i renderowanie Markdown (brak surowego HTML, rel="noopener noreferrer"),
  * - autouzupełnianie @ oraz neutralne polskie komunikaty zdarzeń i skrzynki.
  */
-import type { IssueEvent, TeamMember } from "@kivotasks/client";
+import type { IssueActivityItem, IssueEvent, TeamMember } from "@kivotasks/client";
+import type { CoreClient } from "@monorise-team/sdk";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
-import { formatInboxKindText, formatIssueEventText } from "@/app/app/activity-ui";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { formatInboxKindText, formatIssueEventText, mergeActivityItems } from "@/app/app/activity-ui";
 import { MarkdownContent } from "@/app/app/components/MarkdownContent";
 import { parseMarkdownBlocks, sanitizeMarkdownUrl } from "@/app/app/markdown";
 import { filterMentionCandidates, findActiveMentionQuery, insertMentionToken } from "@/app/app/mention-autocomplete";
@@ -30,8 +31,14 @@ import {
   extractMentionAccountIds,
   filterValidMentionAccountIds,
   parseReactionEmojiParam,
+  redactIssueEvent,
   type IssueEventDiffSnapshot,
 } from "@/server/collaboration-helpers";
+import {
+  invalidateDirectoryNamesCache,
+  tryResolveOrganizationMemberNames,
+  UNKNOWN_PERSON_NAME,
+} from "@/server/core-directory";
 
 const ANNA_ID = "019a0000-0000-7000-8000-000000000001";
 const JAN_ID = "019a0000-0000-7000-8000-000000000002";
@@ -200,6 +207,103 @@ describe("budowanie wpisów historii zadania (issue_events)", () => {
     });
     expect(JSON.stringify(events)).not.toContain(secretText);
   });
+
+  it("traktuje null i pusty ciąg opisu jako równe (brak pozornego DESCRIPTION_CHANGED)", () => {
+    expect(
+      buildIssueUpdateEvents({ ...baseSnapshot, description: null }, { ...baseSnapshot, description: "" }),
+    ).toEqual([]);
+    expect(
+      buildIssueUpdateEvents({ ...baseSnapshot, description: "" }, { ...baseSnapshot, description: null }),
+    ).toEqual([]);
+    expect(
+      buildIssueUpdateEvents({ ...baseSnapshot, description: "Opis" }, { ...baseSnapshot, description: "" }),
+    ).toEqual([
+      {
+        type: "DESCRIPTION_CHANGED",
+        before: { hasDescription: true },
+        after: { hasDescription: false },
+      },
+    ]);
+  });
+
+  it("redaguje zdarzenia RELATION_ADDED, RELATION_REMOVED i PARENT_CHANGED wskazujące niedostępny zespół", () => {
+    const teamX = "019a0000-0000-7000-8000-000000000101";
+    const teamY = "019a0000-0000-7000-8000-000000000102";
+
+    const relAdded = {
+      type: "RELATION_ADDED" as const,
+      before: null,
+      after: {
+        relationId: "rel-1",
+        type: "BLOCKS",
+        relatedIssueId: "issue-y",
+        relatedIssueTeamId: teamY,
+        relatedIssueIdentifier: "FIN-7",
+        relatedIssueTitle: "Tajny budżet",
+      },
+    };
+    const relRemoved = {
+      type: "RELATION_REMOVED" as const,
+      before: {
+        relationId: "rel-1",
+        type: "BLOCKS",
+        relatedIssueId: "issue-y",
+        relatedIssueTeamId: teamY,
+        relatedIssueIdentifier: "FIN-7",
+        relatedIssueTitle: "Tajny budżet",
+      },
+      after: null,
+    };
+    const parentChanged = {
+      type: "PARENT_CHANGED" as const,
+      before: { parentId: null, parentIdentifier: null },
+      after: { parentId: "issue-y", parentTeamId: teamY, parentIdentifier: "FIN-7", parentTitle: "Tajny budżet" },
+    };
+
+    // Widoczny zespół (ALL lub teamY) -> bez redakcji
+    expect(redactIssueEvent(relAdded, "ALL")).toEqual(relAdded);
+    expect(redactIssueEvent(relAdded, [teamX, teamY])).toEqual(relAdded);
+
+    // Niedostępny zespół -> identyfikator, tytuł i ID zamienione na null
+    const redactedAdded = redactIssueEvent(relAdded, [teamX]);
+    expect(redactedAdded.after).toMatchObject({
+      relationId: "rel-1",
+      type: "BLOCKS",
+      relatedIssueId: null,
+      relatedIssueTeamId: null,
+      relatedIssueIdentifier: null,
+      relatedIssueTitle: null,
+    });
+    expect(JSON.stringify(redactedAdded)).not.toContain("FIN-7");
+    expect(JSON.stringify(redactedAdded)).not.toContain("Tajny budżet");
+
+    const redactedRemoved = redactIssueEvent(relRemoved, [teamX]);
+    expect(redactedRemoved.before).toMatchObject({
+      relationId: "rel-1",
+      type: "BLOCKS",
+      relatedIssueId: null,
+      relatedIssueTeamId: null,
+      relatedIssueIdentifier: null,
+      relatedIssueTitle: null,
+    });
+
+    const redactedParent = redactIssueEvent(parentChanged, [teamX]);
+    expect(redactedParent.after).toMatchObject({
+      parentId: null,
+      parentTeamId: null,
+      parentIdentifier: null,
+      parentTitle: null,
+      redacted: true,
+    });
+
+    // Fail-closed przy braku teamId
+    const missingTeam = {
+      type: "RELATION_ADDED" as const,
+      before: null,
+      after: { relationId: "rel-2", type: "RELATED", relatedIssueId: "issue-z", relatedIssueIdentifier: "SEC-1" },
+    };
+    expect(redactIssueEvent(missingTeam, [teamX]).after?.relatedIssueIdentifier).toBeNull();
+  });
 });
 
 describe("reakcje emoji i kursory stronicowania", () => {
@@ -349,5 +453,236 @@ describe("autouzupełnianie @ i neutralne komunikaty aktywności oraz skrzynki",
     expect(formatInboxKindText("ASSIGNED", "Anna Nowak")).toBe("Anna Nowak przypisuje Ci zadanie");
     expect(formatInboxKindText("MENTIONED", "Anna Nowak")).toBe("Anna Nowak wspomina o Tobie w komentarzu");
     expect(formatInboxKindText("COMMENTED", "Anna Nowak")).toBe("Anna Nowak dodaje komentarz w obserwowanym zadaniu");
+    expect(formatInboxKindText("COMMENTED", null)).toBe("Nieznana osoba dodaje komentarz w obserwowanym zadaniu");
+
+    // Zredagowane zdarzenia z niedostępnych zespołów pokazują „zadanie niedostępne”
+    expect(
+      formatIssueEventText(
+        makeEvent("RELATION_ADDED", null, {
+          relationId: "r-1",
+          type: "BLOCKS",
+          relatedIssueId: null,
+          relatedIssueIdentifier: null,
+          relatedIssueTitle: null,
+        }),
+        names,
+      ),
+    ).toBe("Anna Nowak dodaje powiązanie blokuje (zadanie niedostępne)");
+    expect(
+      formatIssueEventText(
+        makeEvent(
+          "RELATION_REMOVED",
+          {
+            relationId: "r-1",
+            type: "BLOCKS",
+            relatedIssueId: null,
+            relatedIssueIdentifier: null,
+            relatedIssueTitle: null,
+          },
+          null,
+        ),
+        names,
+      ),
+    ).toBe("Anna Nowak usuwa powiązanie (zadanie niedostępne)");
+    expect(
+      formatIssueEventText(
+        makeEvent(
+          "PARENT_CHANGED",
+          { parentId: null, parentIdentifier: null },
+          { parentId: null, parentIdentifier: null, parentTitle: null, redacted: true },
+        ),
+        names,
+      ),
+    ).toBe("Anna Nowak ustawia zadanie nadrzędne (zadanie niedostępne)");
+  });
+
+  it("mergeActivityItems deduplikuje nakładające się strony i optymistyczne komentarze po kind:id w porządku chronologicznym", () => {
+    const ev1: IssueActivityItem = {
+      kind: "event",
+      id: "019a0000-0000-7000-8000-000000000010",
+      createdAt: "2026-11-27T04:00:00.000Z",
+      event: {
+        id: "019a0000-0000-7000-8000-000000000010",
+        organizationId: "org-1",
+        teamId: "team-1",
+        issueId: "issue-1",
+        actorAccountId: ANNA_ID,
+        actorName: "Anna Nowak",
+        type: "CREATED",
+        before: null,
+        after: {},
+        createdAt: "2026-11-27T04:00:00.000Z",
+      },
+    };
+    const optimisticComment: IssueActivityItem = {
+      kind: "comment",
+      id: "019a0000-0000-7000-8000-000000000020",
+      createdAt: "2026-11-27T04:01:00.000Z",
+      comment: {
+        id: "019a0000-0000-7000-8000-000000000020",
+        organizationId: "org-1",
+        teamId: "team-1",
+        issueId: "issue-1",
+        authorAccountId: ANNA_ID,
+        authorName: "Anna Nowak",
+        body: "Wersja pierwsza",
+        deleted: false,
+        mentionedAccountIds: [],
+        reactions: [],
+        createdAt: "2026-11-27T04:01:00.000Z",
+        updatedAt: "2026-11-27T04:01:00.000Z",
+        editedAt: null,
+        deletedAt: null,
+      },
+    };
+    const refreshedComment: IssueActivityItem = {
+      ...optimisticComment,
+      comment: { ...optimisticComment.comment, body: "Wersja odświeżona" },
+    };
+    const sameTsComment: IssueActivityItem = {
+      ...optimisticComment,
+      id: "019a0000-0000-7000-8000-000000000010",
+      createdAt: "2026-11-27T04:00:00.000Z",
+      comment: {
+        ...optimisticComment.comment,
+        id: "019a0000-0000-7000-8000-000000000010",
+        createdAt: "2026-11-27T04:00:00.000Z",
+      },
+    };
+
+    const merged = mergeActivityItems([optimisticComment, ev1], [refreshedComment, sameTsComment, ev1]);
+    expect(merged.map((i) => `${i.kind}:${i.id}`)).toEqual([
+      `event:${ev1.id}`,
+      `comment:${sameTsComment.id}`,
+      `comment:${refreshedComment.id}`,
+    ]);
+    const refreshed = merged[2];
+    expect(refreshed?.kind).toBe("comment");
+    if (refreshed?.kind === "comment") {
+      expect(refreshed.comment.body).toBe("Wersja odświeżona");
+    }
+  });
+});
+
+describe("pamięć podręczna katalogu Core (tryResolveOrganizationMemberNames)", () => {
+  beforeEach(() => {
+    invalidateDirectoryNamesCache();
+  });
+
+  type DirectoryEmployeeItem = Awaited<ReturnType<CoreClient["listProductDirectoryEmployees"]>>["items"][number];
+
+  function makeEmployee(accountId: string, firstName: string, lastName: string): DirectoryEmployeeItem {
+    return {
+      id: `emp-${accountId}`,
+      accountId,
+      firstName,
+      lastName,
+      email: `${firstName.toLowerCase()}@acme.test`,
+      status: "ACTIVE",
+      jobTitle: null,
+    } as unknown as DirectoryEmployeeItem;
+  }
+
+  it("buforuje nazwy przez TTL 60 s, deduplikuje równoległe zapytania (single-flight) i odświeża po wygaśnięciu", async () => {
+    let clock = 1_000_000;
+    let resolveFirstFetch!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      resolveFirstFetch = resolve;
+    });
+
+    const listProductDirectoryEmployees = vi.fn(async () => {
+      await gate;
+      return {
+        items: [makeEmployee(ANNA_ID, "Anna", "Nowak"), makeEmployee(JAN_ID, "Jan", "Kowalski")],
+        nextCursor: null,
+      };
+    });
+    const core = { listProductDirectoryEmployees } as unknown as Pick<CoreClient, "listProductDirectoryEmployees">;
+
+    // Dwa równoległe wywołania dla tej samej firmy współdzielą jedno pobranie (single-flight)
+    const p1 = tryResolveOrganizationMemberNames("org-1", new Set([ANNA_ID]), {
+      core,
+      ttlMs: 60_000,
+      now: () => clock,
+    });
+    const p2 = tryResolveOrganizationMemberNames("org-1", new Set([JAN_ID, OBCY_ID]), {
+      core,
+      ttlMs: 60_000,
+      now: () => clock,
+    });
+    resolveFirstFetch();
+
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(listProductDirectoryEmployees).toHaveBeenCalledTimes(1);
+    expect(r1.get(ANNA_ID)).toBe("Anna Nowak");
+    expect(r2.get(JAN_ID)).toBe("Jan Kowalski");
+    expect(r2.get(OBCY_ID)).toBe(UNKNOWN_PERSON_NAME);
+
+    // W obrębie TTL 60 s kolejne wywołanie trafia w pamięć podręczną
+    clock += 59_999;
+    const r3 = await tryResolveOrganizationMemberNames("org-1", new Set([ANNA_ID]), {
+      core,
+      ttlMs: 60_000,
+      now: () => clock,
+    });
+    expect(listProductDirectoryEmployees).toHaveBeenCalledTimes(1);
+    expect(r3.get(ANNA_ID)).toBe("Anna Nowak");
+
+    // Po wygaśnięciu TTL pobiera ponownie
+    clock += 2;
+    await tryResolveOrganizationMemberNames("org-1", new Set([ANNA_ID]), {
+      core,
+      ttlMs: 60_000,
+      now: () => clock,
+    });
+    expect(listProductDirectoryEmployees).toHaveBeenCalledTimes(2);
+  });
+
+  it("nigdy nie buforuje błędów i zwraca Nieznana osoba bez przerywania żądania", async () => {
+    let shouldFail = true;
+    const listProductDirectoryEmployees = vi.fn(async () => {
+      if (shouldFail) {
+        throw new Error("Core timeout");
+      }
+      return {
+        items: [makeEmployee(ANNA_ID, "Anna", "Nowak")],
+        nextCursor: null,
+      };
+    });
+    const core = { listProductDirectoryEmployees } as unknown as Pick<CoreClient, "listProductDirectoryEmployees">;
+
+    const failed = await tryResolveOrganizationMemberNames("org-err", new Set([ANNA_ID]), { core });
+    expect(failed.get(ANNA_ID)).toBe(UNKNOWN_PERSON_NAME);
+    expect(listProductDirectoryEmployees).toHaveBeenCalledTimes(1);
+
+    // Kolejne wywołanie próbuje ponownie (błąd nie zatruł pamięci podręcznej)
+    shouldFail = false;
+    const recovered = await tryResolveOrganizationMemberNames("org-err", new Set([ANNA_ID]), { core });
+    expect(recovered.get(ANNA_ID)).toBe("Anna Nowak");
+    expect(listProductDirectoryEmployees).toHaveBeenCalledTimes(2);
+  });
+
+  it("ogranicza liczbę stron (maxPages) oraz rozmiar pamięci podręcznej (usuwa najstarszą firmę)", async () => {
+    const pagedFetch = vi.fn(async ({ query }: { query: { organizationId: string; cursor?: string } }) => ({
+      items: [makeEmployee(ANNA_ID, "Anna", query.organizationId)],
+      nextCursor: `next-${query.cursor ?? "0"}`,
+    }));
+    const core = { listProductDirectoryEmployees: pagedFetch } as unknown as Pick<
+      CoreClient,
+      "listProductDirectoryEmployees"
+    >;
+
+    await tryResolveOrganizationMemberNames("org-a", new Set([ANNA_ID]), { core, maxPages: 2, maxOrgs: 2 });
+    expect(pagedFetch).toHaveBeenCalledTimes(2);
+
+    await tryResolveOrganizationMemberNames("org-b", new Set([ANNA_ID]), { core, maxPages: 1, maxOrgs: 2 });
+    await tryResolveOrganizationMemberNames("org-c", new Set([ANNA_ID]), { core, maxPages: 1, maxOrgs: 2 });
+    // Pojemność maxOrgs=2 usunęła najstarszą firmę org-a; org-b i org-c nadal w pamięci
+    const callsBefore = pagedFetch.mock.calls.length;
+    await tryResolveOrganizationMemberNames("org-b", new Set([ANNA_ID]), { core, maxPages: 1, maxOrgs: 2 });
+    expect(pagedFetch).toHaveBeenCalledTimes(callsBefore);
+
+    await tryResolveOrganizationMemberNames("org-a", new Set([ANNA_ID]), { core, maxPages: 1, maxOrgs: 2 });
+    expect(pagedFetch).toHaveBeenCalledTimes(callsBefore + 1);
   });
 });

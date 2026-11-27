@@ -24,7 +24,13 @@ import {
 } from "@monorise-team/ui";
 import { History, MessageSquare, Pencil, SmilePlus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { COMMENT_DELETED_LABEL, REACTION_EMOJI_LABELS, formatIssueEventText } from "../activity-ui";
+import {
+  COMMENT_DELETED_LABEL,
+  REACTION_EMOJI_LABELS,
+  UNKNOWN_PERSON_LABEL,
+  formatIssueEventText,
+  mergeActivityItems,
+} from "../activity-ui";
 import { formatApiError } from "../app-views";
 import { formatDateTime } from "../issue-ui";
 import { useKivoTasks } from "../KivoTasksContext";
@@ -49,13 +55,14 @@ const ACTIVITY_PAGE_LIMIT = 50;
  */
 export function IssueActivitySection({
   issueId,
+  teamId,
   members,
   memberNameByAccountId,
   canManageTeam,
   activityRevision,
   onCommentCreated,
 }: IssueActivitySectionProps) {
-  const { client, me } = useKivoTasks();
+  const { client, me, canManageTeamById, markTeamManageDenied } = useKivoTasks();
   const { toast } = useToast();
 
   const [state, setState] = useState<{
@@ -91,7 +98,12 @@ export function IssueActivitySection({
       .listActivity(issueId, { limit: ACTIVITY_PAGE_LIMIT })
       .then((page) => {
         if (cancelled) return;
-        setState({ key: loadKey, items: page.items, nextCursor: page.nextCursor, error: null });
+        setState({
+          key: loadKey,
+          items: mergeActivityItems([], page.items),
+          nextCursor: page.nextCursor,
+          error: null,
+        });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -134,7 +146,7 @@ export function IssueActivitySection({
         prev
           ? {
               ...prev,
-              items: [...prev.items, ...page.items],
+              items: mergeActivityItems(prev.items, page.items),
               nextCursor: page.nextCursor,
             }
           : prev,
@@ -163,7 +175,7 @@ export function IssueActivitySection({
         if (!prev) {
           return { key: loadKey, items: [entry], nextCursor: null, error: null };
         }
-        return { ...prev, items: [...prev.items, entry] };
+        return { ...prev, items: mergeActivityItems(prev.items, [entry]) };
       });
       onCommentCreated?.();
     } catch (error) {
@@ -199,6 +211,9 @@ export function IssueActivitySection({
   const handleDeleteComment = async () => {
     if (!deleteTargetId || deleting) return;
     const targetId = deleteTargetId;
+    const targetItem = items.find((item) => item.kind === "comment" && item.comment.id === targetId);
+    const deletingOthersComment =
+      targetItem?.kind === "comment" && targetItem.comment.authorAccountId !== me.account.id;
     setDeleting(true);
     setActionError(null);
     try {
@@ -231,6 +246,15 @@ export function IssueActivitySection({
       }
       toast({ title: "Usunięto komentarz", tone: "neutral" });
     } catch (error) {
+      if (
+        deletingOthersComment &&
+        error instanceof ApiError &&
+        error.status === 403 &&
+        error.code === "PERMISSION_DENIED"
+      ) {
+        markTeamManageDenied(teamId);
+        setDeleteTargetId(null);
+      }
       setActionError(formatApiError(error, "Nie udało się usunąć komentarza."));
     } finally {
       setDeleting(false);
@@ -310,9 +334,9 @@ export function IssueActivitySection({
 
             const comment = item.comment;
             const authorName =
-              comment.authorName ?? memberNameByAccountId.get(comment.authorAccountId) ?? "Członek zespołu";
+              comment.authorName ?? memberNameByAccountId.get(comment.authorAccountId) ?? UNKNOWN_PERSON_LABEL;
             const isAuthor = comment.authorAccountId === me.account.id;
-            const canDelete = isAuthor || canManageTeam;
+            const canDelete = isAuthor || (canManageTeam && canManageTeamById(teamId));
             const isEditing = editingId === comment.id;
 
             if (comment.deleted) {

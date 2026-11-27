@@ -6,7 +6,7 @@ import { Archive, Check, CheckCheck, ExternalLink, Inbox, MailOpen, RefreshCw } 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { formatInboxKindText } from "../activity-ui";
+import { UNKNOWN_PERSON_LABEL, formatInboxKindText } from "../activity-ui";
 import { APP_PATHS, formatApiError } from "../app-views";
 import { formatDateTime } from "../issue-ui";
 import { useKivoTasks } from "../KivoTasksContext";
@@ -37,6 +37,11 @@ export function InboxView() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const loadKey = `${filter}:${refreshTick}`;
+
+  // Odśwież licznik nieprzeczytanych przy wejściu do widoku /inbox
+  useEffect(() => {
+    void refreshInboxUnreadCount();
+  }, [refreshInboxUnreadCount]);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +114,7 @@ export function InboxView() {
         };
       });
       setInboxUnreadCount((prev) => Math.max(0, prev + (nextRead ? -1 : 1)));
+      void refreshInboxUnreadCount();
     } catch (error) {
       setActionError(formatApiError(error, "Nie udało się zaktualizować stanu powiadomienia."));
     } finally {
@@ -126,6 +132,7 @@ export function InboxView() {
       if (wasUnread) {
         setInboxUnreadCount((prev) => Math.max(0, prev - 1));
       }
+      void refreshInboxUnreadCount();
       toast({ title: "Zarchiwizowano powiadomienie", tone: "neutral" });
     } catch (error) {
       setActionError(formatApiError(error, "Nie udało się zarchiwizować powiadomienia."));
@@ -137,9 +144,12 @@ export function InboxView() {
   const handleOpenItem = async (item: InboxItem) => {
     if (item.readAt === null) {
       setInboxUnreadCount((prev) => Math.max(0, prev - 1));
-      void client.inbox.update(item.id, { read: true }).catch(() => {
-        void refreshInboxUnreadCount();
-      });
+      void client.inbox
+        .update(item.id, { read: true })
+        .then(() => refreshInboxUnreadCount())
+        .catch(() => {
+          void refreshInboxUnreadCount();
+        });
     }
     router.push(APP_PATHS.issueDetail(item.issue.identifier));
   };
@@ -162,6 +172,7 @@ export function InboxView() {
         };
       });
       setInboxUnreadCount(0);
+      void refreshInboxUnreadCount();
       toast({
         title:
           result.updatedCount > 0
@@ -268,7 +279,7 @@ export function InboxView() {
         <ul className="flex flex-col divide-y divide-border-secondary overflow-hidden rounded-card border border-border-primary bg-bg-secondary/45">
           {items.map((item) => {
             const isUnread = item.readAt === null;
-            const actorLabel = item.actorName ?? "Członek zespołu";
+            const actorLabel = item.actorName ?? UNKNOWN_PERSON_LABEL;
             const kindText = formatInboxKindText(item.kind, item.actorName);
             const busy = busyItemId === item.id;
             const issueHref = APP_PATHS.issueDetail(item.issue.identifier);

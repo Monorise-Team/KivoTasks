@@ -1,7 +1,8 @@
-import type { CommentReactionEmoji, InboxItemKind, IssueEvent } from "@kivotasks/client";
+import type { CommentReactionEmoji, InboxItemKind, IssueActivityItem, IssueEvent } from "@kivotasks/client";
 import { ISSUE_RELATION_LABELS, formatDueDate, formatPriorityLabel } from "./issue-ui";
 
 export const COMMENT_DELETED_LABEL = "Komentarz usunięty";
+export const UNKNOWN_PERSON_LABEL = "Nieznana osoba";
 
 export const REACTION_EMOJI_LABELS: Record<CommentReactionEmoji, string> = {
   "👍": "Kciuk w górę",
@@ -54,7 +55,7 @@ function resolvePersonName(
     const found = memberNames.get(accountId) ?? memberNames.get(accountId.toLowerCase());
     if (found) return found;
   }
-  return "Członek zespołu";
+  return UNKNOWN_PERSON_LABEL;
 }
 
 /**
@@ -124,6 +125,9 @@ export function formatIssueEventText(event: IssueEvent, memberNames: ReadonlyMap
       return nextEstimate !== null ? `${actor} ustawia szacunek na ${nextEstimate}` : `${actor} usuwa szacunek`;
     }
     case "PARENT_CHANGED": {
+      if (readBoolean(after, "redacted") === true) {
+        return `${actor} ustawia zadanie nadrzędne (zadanie niedostępne)`;
+      }
       const nextParent = readString(after, "parentIdentifier");
       return nextParent ? `${actor} ustawia zadanie nadrzędne ${nextParent}` : `${actor} odpina zadanie nadrzędne`;
     }
@@ -134,11 +138,16 @@ export function formatIssueEventText(event: IssueEvent, memberNames: ReadonlyMap
       if (label && relatedId) {
         return `${actor} dodaje powiązanie ${label} ${relatedId}`;
       }
-      return relatedId ? `${actor} dodaje powiązanie z ${relatedId}` : `${actor} dodaje powiązanie`;
+      if (relatedId) {
+        return `${actor} dodaje powiązanie z ${relatedId}`;
+      }
+      return label
+        ? `${actor} dodaje powiązanie ${label} (zadanie niedostępne)`
+        : `${actor} dodaje powiązanie (zadanie niedostępne)`;
     }
     case "RELATION_REMOVED": {
       const relatedId = readString(before, "relatedIssueIdentifier");
-      return relatedId ? `${actor} usuwa powiązanie z ${relatedId}` : `${actor} usuwa powiązanie`;
+      return relatedId ? `${actor} usuwa powiązanie z ${relatedId}` : `${actor} usuwa powiązanie (zadanie niedostępne)`;
     }
     case "DELETED":
       return `${actor} usuwa zadanie`;
@@ -146,10 +155,38 @@ export function formatIssueEventText(event: IssueEvent, memberNames: ReadonlyMap
 }
 
 /**
+ * Scala wpisy aktywności (zdarzenia i komentarze) bez duplikatów według stabilnego klucza `kind:id`
+ * w porządku chronologicznym zgodnym z serwerem (`createdAt ASC`, zdarzenia przed komentarzami, `id ASC`).
+ */
+export function mergeActivityItems(
+  existing: readonly IssueActivityItem[],
+  incoming: readonly IssueActivityItem[],
+): IssueActivityItem[] {
+  const byKey = new Map<string, IssueActivityItem>();
+  for (const item of existing) {
+    byKey.set(`${item.kind}:${item.id}`, item);
+  }
+  for (const item of incoming) {
+    byKey.set(`${item.kind}:${item.id}`, item);
+  }
+  return [...byKey.values()].sort((a, b) => {
+    if (a.createdAt !== b.createdAt) {
+      return a.createdAt < b.createdAt ? -1 : 1;
+    }
+    const rankA = a.kind === "event" ? 0 : 1;
+    const rankB = b.kind === "event" ? 0 : 1;
+    if (rankA !== rankB) {
+      return rankA - rankB;
+    }
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+}
+
+/**
  * Formatuje opis zdarzenia w skrzynce powiadomień (neutralnie płciowo po polsku).
  */
 export function formatInboxKindText(kind: InboxItemKind, actorName: string | null): string {
-  const actor = actorName && actorName.trim() ? actorName.trim() : "Członek zespołu";
+  const actor = actorName && actorName.trim() ? actorName.trim() : UNKNOWN_PERSON_LABEL;
   switch (kind) {
     case "ASSIGNED":
       return `${actor} przypisuje Ci zadanie`;
