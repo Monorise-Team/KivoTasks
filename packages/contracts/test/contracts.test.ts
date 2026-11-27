@@ -276,12 +276,14 @@ describe("schematy etapu 2a: komentarze, reakcje, historia i skrzynka", () => {
     expect(INBOX_ITEM_KINDS).toEqual(["ASSIGNED", "MENTIONED", "COMMENTED"]);
   });
 
-  it("waliduje treść komentarza (1-10 000 znaków, nie same spacje) oraz parametry skrzynki", () => {
+  it("waliduje treść komentarza (1-10 000 znaków, bez znaku NUL i nie same spacje) oraz parametry skrzynki", () => {
     expect(CreateIssueCommentInput.parse({ body: "Gotowe do przeglądu" })).toEqual({ body: "Gotowe do przeglądu" });
     expect(() => CreateIssueCommentInput.parse({ body: "" })).toThrow();
     expect(() => CreateIssueCommentInput.parse({ body: "   \n\t " })).toThrow();
     expect(() => CreateIssueCommentInput.parse({ body: "a".repeat(10_001) })).toThrow();
+    expect(() => CreateIssueCommentInput.parse({ body: "Tekst ze znakiem \u0000 NUL" })).toThrow();
     expect(() => UpdateIssueCommentInput.parse({ body: "   " })).toThrow();
+    expect(() => UpdateIssueCommentInput.parse({ body: "Edycja \u0000 NUL" })).toThrow();
 
     expect(InboxListQuery.parse({})).toEqual({ filter: "all", limit: 50 });
     expect(InboxListQuery.parse({ filter: "unread", limit: "20" })).toEqual({ filter: "unread", limit: 20 });

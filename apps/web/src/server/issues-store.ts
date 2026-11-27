@@ -113,8 +113,14 @@ export interface ListIssueCommentsStoreParams {
 
 export interface ListIssueActivityStoreParams {
   issueId: string;
+  readableTeamIds: TeamFilterScope;
   limit: number;
   cursor?: ActivityCursorPayload;
+}
+
+export interface UpdateIssueStoreResult {
+  issue: IssueDetail;
+  previousAssigneeAccountId: string | null;
 }
 
 export interface ListInboxStoreParams {
@@ -172,7 +178,7 @@ export interface IssuesStore {
     issueId: string,
     input: UpdateIssueStoreInput,
     readableTeamIds: TeamFilterScope,
-  ): Promise<IssueDetail | null>;
+  ): Promise<UpdateIssueStoreResult | null>;
   softDeleteIssue(actor: Actor, issueId: string): Promise<boolean>;
 
   // Relations

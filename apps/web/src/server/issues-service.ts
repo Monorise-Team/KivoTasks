@@ -217,7 +217,7 @@ export async function updateIssue(caller: Caller, issueId: string, rawInput: unk
   }
 
   const visibleTeams = readableIssueTeamsFilter(snapshot);
-  const updated = await store.updateIssue(
+  const result = await store.updateIssue(
     caller,
     issueId,
     {
@@ -234,29 +234,30 @@ export async function updateIssue(caller: Caller, issueId: string, rawInput: unk
     },
     visibleTeams,
   );
-  if (!updated) {
+  if (!result) {
     throw new ApiFailure(404, "NOT_FOUND", "Nie znaleziono zadania");
   }
 
+  // Porównujemy ze stanem z wiersza zablokowanego FOR UPDATE, żeby równoległe żądania nie wysłały duplikatu e-maila
   if (
     input.assigneeAccountId !== undefined &&
-    updated.assigneeAccountId &&
+    result.issue.assigneeAccountId &&
     shouldNotifyIssueAssignment({
-      previousAssigneeAccountId: existing.assigneeAccountId,
-      nextAssigneeAccountId: updated.assigneeAccountId,
+      previousAssigneeAccountId: result.previousAssigneeAccountId,
+      nextAssigneeAccountId: result.issue.assigneeAccountId,
       actorAccountId: caller.accountId,
     })
   ) {
     await notifyIssueAssigned({
       organizationId: caller.organizationId,
-      recipientAccountId: updated.assigneeAccountId,
-      issue: updated,
+      recipientAccountId: result.issue.assigneeAccountId,
+      issue: result.issue,
       teamName: existing.teamName,
       actorName: resolveAssignmentActorName(caller, teamMembers),
     });
   }
 
-  return updated;
+  return result.issue;
 }
 
 export async function deleteIssue(caller: Caller, issueId: string): Promise<void> {

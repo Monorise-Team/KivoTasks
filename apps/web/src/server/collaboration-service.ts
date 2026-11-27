@@ -24,7 +24,7 @@ import {
   filterValidMentionAccountIds,
   parseReactionEmojiParam,
 } from "./collaboration-helpers";
-import { listTeamMembersWithAccount, tryResolveOrganizationMemberNames } from "./core-directory";
+import { listTeamMembersWithAccount, tryResolveOrganizationMemberNames, UNKNOWN_PERSON_NAME } from "./core-directory";
 import { getIssuesStore, type IssueLocation } from "./issues-store";
 import { canManageTeam, canReadTeamIssues, readableIssueTeamsFilter, requireAuthorizedSnapshot } from "./permissions";
 
@@ -60,11 +60,21 @@ async function resolveValidMentions(organizationId: string, teamId: string, body
   return filterValidMentionAccountIds(candidates, allowedIds);
 }
 
+function resolveDisplayName(accountId: string, names: ReadonlyMap<string, string>, caller: Caller): string {
+  const key = accountId.toLowerCase();
+  const fromDir = names.get(key);
+  if (fromDir && fromDir !== UNKNOWN_PERSON_NAME) {
+    return fromDir;
+  }
+  if (key === caller.accountId.toLowerCase()) {
+    const fromSession = caller.session?.profile.name?.trim();
+    if (fromSession) return fromSession;
+  }
+  return fromDir ?? UNKNOWN_PERSON_NAME;
+}
+
 function attachAuthorName(comment: IssueComment, names: ReadonlyMap<string, string>, caller: Caller): IssueComment {
-  const key = comment.authorAccountId.toLowerCase();
-  const resolved =
-    names.get(key) ?? (key === caller.accountId.toLowerCase() ? (caller.session?.profile.name?.trim() ?? null) : null);
-  return { ...comment, authorName: resolved };
+  return { ...comment, authorName: resolveDisplayName(comment.authorAccountId, names, caller) };
 }
 
 // ── Komentarze i reakcje ────────────────────────────────────────────────────
@@ -204,12 +214,14 @@ export async function listIssueActivity(
   issueId: string,
   searchParams: URLSearchParams,
 ): Promise<PaginatedResult<IssueActivityItem>> {
-  const { issue } = await resolveVisibleIssue(caller, issueId);
+  const { snapshot, issue } = await resolveVisibleIssue(caller, issueId);
+  const readableTeamIds = readableIssueTeamsFilter(snapshot);
   const parsed = IssueActivityQuery.parse(queryParamsToRecord(searchParams));
   const cursor = parsed.cursor ? decodeActivityCursor(parsed.cursor) : undefined;
 
   const page = await getIssuesStore().listIssueActivity(caller, {
     issueId: issue.id,
+    readableTeamIds,
     limit: parsed.limit,
     cursor,
   });
@@ -228,11 +240,10 @@ export async function listIssueActivity(
     if (item.kind === "comment") {
       return { ...item, comment: attachAuthorName(item.comment, names, caller) };
     }
-    const actorKey = item.event.actorAccountId.toLowerCase();
-    const actorName =
-      names.get(actorKey) ??
-      (actorKey === caller.accountId.toLowerCase() ? (caller.session?.profile.name?.trim() ?? null) : null);
-    return { ...item, event: { ...item.event, actorName } };
+    return {
+      ...item,
+      event: { ...item.event, actorName: resolveDisplayName(item.event.actorAccountId, names, caller) },
+    };
   });
 
   return { items: enriched, nextCursor: page.nextCursor };
@@ -279,7 +290,7 @@ export async function listInboxItems(
   const names = await tryResolveOrganizationMemberNames(caller.organizationId, neededIds);
   const items = page.items.map((item) => ({
     ...item,
-    actorName: names.get(item.actorAccountId.toLowerCase()) ?? null,
+    actorName: names.get(item.actorAccountId.toLowerCase()) ?? UNKNOWN_PERSON_NAME,
   }));
 
   return { items, nextCursor: page.nextCursor };
@@ -310,7 +321,7 @@ export async function updateInboxItem(caller: Caller, itemId: string, rawInput: 
   const names = await tryResolveOrganizationMemberNames(caller.organizationId, new Set([updated.actorAccountId]));
   return {
     ...updated,
-    actorName: names.get(updated.actorAccountId.toLowerCase()) ?? null,
+    actorName: names.get(updated.actorAccountId.toLowerCase()) ?? UNKNOWN_PERSON_NAME,
   };
 }
 

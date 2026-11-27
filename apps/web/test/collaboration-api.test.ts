@@ -32,6 +32,7 @@ import * as statesRoute from "@/app/api/v1/teams/[teamId]/states/route";
 import * as teamsRoute from "@/app/api/v1/teams/route";
 import { getAuth } from "@/server/auth";
 import { resetMachineCoreTokenCache, setCoreRetryForTests } from "@/server/core";
+import { invalidateDirectoryNamesCache } from "@/server/core-directory";
 import {
   CORE_DIRECTORY_READ_SCOPE,
   CORE_EVENTS_READ_SCOPE,
@@ -174,6 +175,7 @@ beforeEach(async () => {
   capturedNotifications = [];
   setCoreRetryForTests(false);
   invalidatePermissionCache();
+  invalidateDirectoryNamesCache();
   resetMachineCoreTokenCache();
 
   acme = fakeCore.organization({ name: "Acme", domain: "acme.test" });
@@ -742,5 +744,279 @@ describe("historia zmian zadania (issue_events) i chronologiczny strumień aktyw
       `,
     );
     expect(deletedEvents).toHaveLength(1);
+  });
+
+  it("redaguje w aktywności odwołania do zadań z zespołów spoza zasięgu odczytu (bez wycieku identyfikatora ani tytułu)", async () => {
+    const magIssue = await call(issuesRoute.POST, "/issues", {
+      method: "POST",
+      body: { teamId: unitMagazynId, title: "Zadanie Magazynu" },
+      token: ownerToken,
+    });
+    const finIssue = await call(issuesRoute.POST, "/issues", {
+      method: "POST",
+      body: { teamId: unitFinanseId, title: "Tajny budżet zarządu" },
+      token: ownerToken,
+    });
+    expect(magIssue.status).toBe(201);
+    expect(finIssue.status).toBe(201);
+    const magIssueId = magIssue.body.data.id as string;
+    const finIssueId = finIssue.body.data.id as string;
+    const finIdentifier = finIssue.body.data.identifier as string;
+
+    // Owner dodaje i usuwa relację między MAG-1 i FIN-1
+    const rel = await call(
+      relationsRoute.POST,
+      `/issues/${magIssueId}/relations`,
+      { method: "POST", body: { relatedIssueId: finIssueId, type: "BLOCKS" }, token: ownerToken },
+      { issueId: magIssueId },
+    );
+    expect(rel.status).toBe(201);
+    const relationId = rel.body.data.id as string;
+
+    const delRel = await call(
+      relationByIdRoute.DELETE,
+      `/issues/${magIssueId}/relations/${relationId}`,
+      { method: "DELETE", token: ownerToken },
+      { issueId: magIssueId, relationId },
+    );
+    expect(delRel.status).toBe(204);
+
+    // Anna widzi wyłącznie Magazyn: aktywność MAG-1 nie może ujawnić identyfikatora, tytułu ani ID z Finansów
+    const annaActivity = await call(
+      issueActivityRoute.GET,
+      `/issues/${magIssueId}/activity`,
+      { token: annaToken },
+      { issueId: magIssueId },
+    );
+    expect(annaActivity.status).toBe(200);
+    const annaRaw = JSON.stringify(annaActivity.body.data);
+    expect(annaRaw).not.toContain(finIdentifier);
+    expect(annaRaw).not.toContain("Tajny budżet zarządu");
+    expect(annaRaw).not.toContain(finIssueId);
+    expect(annaRaw).not.toContain(unitFinanseId);
+
+    const annaRelAdded = annaActivity.body.data.find(
+      (item: { kind: string; event?: { type: string } }) =>
+        item.kind === "event" && item.event?.type === "RELATION_ADDED",
+    );
+    const annaRelRemoved = annaActivity.body.data.find(
+      (item: { kind: string; event?: { type: string } }) =>
+        item.kind === "event" && item.event?.type === "RELATION_REMOVED",
+    );
+    expect(annaRelAdded?.event?.after?.relatedIssueIdentifier).toBeNull();
+    expect(annaRelAdded?.event?.after?.relatedIssueTitle).toBeNull();
+    expect(annaRelRemoved?.event?.before?.relatedIssueIdentifier).toBeNull();
+    expect(annaRelRemoved?.event?.before?.relatedIssueTitle).toBeNull();
+
+    // Owner widzi oba zespoły -> pełny identyfikator FIN-1 jest obecny
+    const ownerActivity = await call(
+      issueActivityRoute.GET,
+      `/issues/${magIssueId}/activity`,
+      { token: ownerToken },
+      { issueId: magIssueId },
+    );
+    expect(ownerActivity.status).toBe(200);
+    const ownerRelAdded = ownerActivity.body.data.find(
+      (item: { kind: string; event?: { type: string } }) =>
+        item.kind === "event" && item.event?.type === "RELATION_ADDED",
+    );
+    expect(ownerRelAdded?.event?.after?.relatedIssueIdentifier).toBe(finIdentifier);
+  });
+
+  it("serializuje równoległe PATCH zadania (FOR UPDATE): brak duplikatów ASSIGNED/e-maili, brak 500 przy etykietach, 404 po usunięciu", async () => {
+    const labelA = await call(
+      labelsRoute.POST,
+      `/teams/${unitMagazynId}/labels`,
+      { method: "POST", body: { name: "Etykieta A", color: "blue" }, token: teamLeadToken },
+      { teamId: unitMagazynId },
+    );
+    const labelB = await call(
+      labelsRoute.POST,
+      `/teams/${unitMagazynId}/labels`,
+      { method: "POST", body: { name: "Etykieta B", color: "green" }, token: teamLeadToken },
+      { teamId: unitMagazynId },
+    );
+    const labelAId = labelA.body.data.id as string;
+    const labelBId = labelB.body.data.id as string;
+
+    const created = await call(issuesRoute.POST, "/issues", {
+      method: "POST",
+      body: { teamId: unitMagazynId, title: "Równoległa edycja" },
+      token: annaToken,
+    });
+    const issueId = created.body.data.id as string;
+
+    // 1. Równoległe przypisanie tego samego zadania do Jana -> dokładnie 1 zdarzenie, 1 wpis ASSIGNED i 1 e-mail
+    const [assign1, assign2] = await Promise.all([
+      call(
+        issueByIdRoute.PATCH,
+        `/issues/${issueId}`,
+        { method: "PATCH", body: { assigneeAccountId: jan.accountId }, token: annaToken },
+        { issueId },
+      ),
+      call(
+        issueByIdRoute.PATCH,
+        `/issues/${issueId}`,
+        { method: "PATCH", body: { assigneeAccountId: jan.accountId }, token: annaToken },
+        { issueId },
+      ),
+    ]);
+    expect(assign1.status).toBe(200);
+    expect(assign2.status).toBe(200);
+    expect(capturedNotifications).toHaveLength(1);
+
+    const janInbox = await call(inboxRoute.GET, "/inbox?filter=all", { token: janToken });
+    expect(janInbox.body.data.filter((item: { kind: string }) => item.kind === "ASSIGNED")).toHaveLength(1);
+
+    const activityAfterAssign = await call(
+      issueActivityRoute.GET,
+      `/issues/${issueId}/activity`,
+      { token: annaToken },
+      { issueId },
+    );
+    expect(
+      activityAfterAssign.body.data.filter(
+        (item: { kind: string; event?: { type: string } }) =>
+          item.kind === "event" && item.event?.type === "ASSIGNEE_CHANGED",
+      ),
+    ).toHaveLength(1);
+
+    // 2. Równoległe aktualizacje etykiet nie dają błędu 500
+    const labelUpdates = await Promise.all([
+      call(
+        issueByIdRoute.PATCH,
+        `/issues/${issueId}`,
+        { method: "PATCH", body: { labelIds: [labelAId, labelBId] }, token: annaToken },
+        { issueId },
+      ),
+      call(
+        issueByIdRoute.PATCH,
+        `/issues/${issueId}`,
+        { method: "PATCH", body: { labelIds: [labelAId, labelBId] }, token: annaToken },
+        { issueId },
+      ),
+      call(
+        issueByIdRoute.PATCH,
+        `/issues/${issueId}`,
+        { method: "PATCH", body: { labelIds: [labelBId] }, token: annaToken },
+        { issueId },
+      ),
+    ]);
+    for (const res of labelUpdates) {
+      expect(res.status).toBe(200);
+    }
+
+    // 3. Pusty opis "" względem null nie generuje DESCRIPTION_CHANGED
+    const emptyDescRes = await call(
+      issueByIdRoute.PATCH,
+      `/issues/${issueId}`,
+      { method: "PATCH", body: { description: "" }, token: annaToken },
+      { issueId },
+    );
+    expect(emptyDescRes.status).toBe(200);
+    const activityAfterEmptyDesc = await call(
+      issueActivityRoute.GET,
+      `/issues/${issueId}/activity`,
+      { token: annaToken },
+      { issueId },
+    );
+    expect(
+      activityAfterEmptyDesc.body.data.filter(
+        (item: { kind: string; event?: { type: string } }) =>
+          item.kind === "event" && item.event?.type === "DESCRIPTION_CHANGED",
+      ),
+    ).toHaveLength(0);
+
+    // 4. Aktualizacja po usunięciu (lub równolegle z usunięciem) nie może przywrócić zadania -> 404
+    const [delRes, patchRes] = await Promise.all([
+      call(issueByIdRoute.DELETE, `/issues/${issueId}`, { method: "DELETE", token: annaToken }, { issueId }),
+      call(
+        issueByIdRoute.PATCH,
+        `/issues/${issueId}`,
+        { method: "PATCH", body: { title: "Po usunięciu" }, token: annaToken },
+        { issueId },
+      ),
+    ]);
+    expect(delRes.status).toBe(204);
+    expect([200, 404]).toContain(patchRes.status);
+
+    const patchAfterDelete = await call(
+      issueByIdRoute.PATCH,
+      `/issues/${issueId}`,
+      { method: "PATCH", body: { title: "Już usunięte" }, token: annaToken },
+      { issueId },
+    );
+    expect(patchAfterDelete.status).toBe(404);
+  });
+
+  it("odrzuca znak NUL w komentarzu (422) oraz ukrywa wpisy skrzynki usuniętego komentarza z listy, licznika i read-all", async () => {
+    const issueRes = await call(issuesRoute.POST, "/issues", {
+      method: "POST",
+      body: { teamId: unitMagazynId, title: "Walidacja i ukrycie usuniętego komentarza" },
+      token: annaToken,
+    });
+    const issueId = issueRes.body.data.id as string;
+
+    // 1. Znak NUL w tworzeniu i edycji komentarza -> 422 VALIDATION_FAILED
+    const nulCreate = await call(
+      commentsRoute.POST,
+      `/issues/${issueId}/comments`,
+      { method: "POST", body: { body: "Treść z \u0000 bajtem NUL" }, token: annaToken },
+      { issueId },
+    );
+    expect(nulCreate.status).toBe(422);
+    expect(nulCreate.body.error.code).toBe("VALIDATION_FAILED");
+
+    // 2. Poprawny komentarz ze wzmianką Jana -> tworzy 1 nieprzeczytany wpis MENTIONED w skrzynce Jana
+    const createdComment = await call(
+      commentsRoute.POST,
+      `/issues/${issueId}/comments`,
+      { method: "POST", body: { body: `Sprawdź @[Jan Kowalski](${jan.accountId})` }, token: annaToken },
+      { issueId },
+    );
+    expect(createdComment.status).toBe(201);
+    const commentId = createdComment.body.data.id as string;
+
+    const nulEdit = await call(
+      commentByIdRoute.PATCH,
+      `/issues/${issueId}/comments/${commentId}`,
+      { method: "PATCH", body: { body: "Edycja z \u0000 NUL" }, token: annaToken },
+      { issueId, commentId },
+    );
+    expect(nulEdit.status).toBe(422);
+
+    const janBeforeDelete = await call(inboxRoute.GET, "/inbox?filter=unread", { token: janToken });
+    expect(janBeforeDelete.body.data).toHaveLength(1);
+    const inboxItemId = janBeforeDelete.body.data[0].id as string;
+
+    const janCountBefore = await call(inboxUnreadCountRoute.GET, "/inbox/unread-count", { token: janToken });
+    expect(janCountBefore.body.data.unreadCount).toBe(1);
+
+    // 3. Miękkie usunięcie komentarza ukrywa wpis z listy, unread-count, PATCH (404) i read-all (0)
+    const deletedComment = await call(
+      commentByIdRoute.DELETE,
+      `/issues/${issueId}/comments/${commentId}`,
+      { method: "DELETE", token: annaToken },
+      { issueId, commentId },
+    );
+    expect(deletedComment.status).toBe(204);
+
+    const janAfterDelete = await call(inboxRoute.GET, "/inbox?filter=all", { token: janToken });
+    expect(janAfterDelete.body.data).toHaveLength(0);
+
+    const janCountAfter = await call(inboxUnreadCountRoute.GET, "/inbox/unread-count", { token: janToken });
+    expect(janCountAfter.body.data.unreadCount).toBe(0);
+
+    const patchHidden = await call(
+      inboxItemRoute.PATCH,
+      `/inbox/${inboxItemId}`,
+      { method: "PATCH", body: { read: true }, token: janToken },
+      { itemId: inboxItemId },
+    );
+    expect(patchHidden.status).toBe(404);
+
+    const readAllHidden = await call(inboxReadAllRoute.POST, "/inbox/read-all", { method: "POST", token: janToken });
+    expect(readAllHidden.status).toBe(200);
+    expect(readAllHidden.body.data.updatedCount).toBe(0);
   });
 });

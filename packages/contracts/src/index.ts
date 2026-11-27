@@ -585,6 +585,7 @@ export const CreateIssueCommentInput = z.object({
     .string()
     .min(1, "Treść komentarza jest wymagana")
     .max(10_000, "Komentarz może mieć najwyżej 10 000 znaków")
+    .refine((value) => !value.includes("\u0000"), "Treść komentarza nie może zawierać znaku NUL")
     .refine((value) => value.trim().length > 0, "Treść komentarza jest wymagana"),
 });
 export type CreateIssueCommentInput = z.input<typeof CreateIssueCommentInput>;
@@ -594,6 +595,7 @@ export const UpdateIssueCommentInput = z.object({
     .string()
     .min(1, "Treść komentarza nie może być pusta")
     .max(10_000, "Komentarz może mieć najwyżej 10 000 znaków")
+    .refine((value) => !value.includes("\u0000"), "Treść komentarza nie może zawierać znaku NUL")
     .refine((value) => value.trim().length > 0, "Treść komentarza nie może być pusta"),
 });
 export type UpdateIssueCommentInput = z.input<typeof UpdateIssueCommentInput>;

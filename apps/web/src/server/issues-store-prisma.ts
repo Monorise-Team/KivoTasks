@@ -36,6 +36,7 @@ import {
   computeCommentInboxFanout,
   encodeActivityCursor,
   encodeTimeIdCursor,
+  redactIssueEvent,
 } from "./collaboration-helpers";
 import { getDb } from "./db";
 import {
@@ -63,6 +64,7 @@ import type {
   SearchIssuesStoreParams,
   UpdateInboxItemStoreParams,
   UpdateIssueStoreInput,
+  UpdateIssueStoreResult,
 } from "./issues-store";
 import type { TeamFilterScope } from "./permissions";
 
@@ -449,29 +451,61 @@ async function lockActiveIssue(tx: Tx, issueId: string): Promise<{ id: string; t
 
 // ── Wspólne pomocniki zapisu historii, obserwujących, komentarzy i skrzynki ─
 
-async function insertIssueEvent(
-  tx: Tx,
-  params: {
-    organizationId: string;
-    teamId: string;
-    issueId: string;
-    actorAccountId: string;
-    type: IssueEventType;
-    before: IssueEventPayload;
-    after: IssueEventPayload;
-    createdAt: Date;
-  },
-): Promise<void> {
-  const id = uuidv7(params.createdAt.getTime());
-  const beforeJson = params.before === null ? null : JSON.stringify(params.before);
-  const afterJson = params.after === null ? null : JSON.stringify(params.after);
+interface PendingIssueEventRow {
+  organizationId: string;
+  teamId: string;
+  issueId: string;
+  actorAccountId: string;
+  type: IssueEventType;
+  before: IssueEventPayload;
+  after: IssueEventPayload;
+  createdAt: Date;
+}
+
+async function insertIssueEvents(tx: Tx, events: readonly PendingIssueEventRow[]): Promise<void> {
+  if (events.length === 0) return;
+
+  const ids: string[] = [];
+  const orgIds: string[] = [];
+  const teamIds: string[] = [];
+  const issueIds: string[] = [];
+  const actorIds: string[] = [];
+  const types: string[] = [];
+  const befores: (string | null)[] = [];
+  const afters: (string | null)[] = [];
+  const createdAts: string[] = [];
+
+  for (const event of events) {
+    ids.push(uuidv7(event.createdAt.getTime()));
+    orgIds.push(event.organizationId);
+    teamIds.push(event.teamId);
+    issueIds.push(event.issueId);
+    actorIds.push(event.actorAccountId);
+    types.push(event.type);
+    befores.push(event.before === null ? null : JSON.stringify(event.before));
+    afters.push(event.after === null ? null : JSON.stringify(event.after));
+    createdAts.push(event.createdAt.toISOString());
+  }
+
   await tx.$executeRaw`
     INSERT INTO "public"."issue_events"
       ("id", "organization_id", "team_id", "issue_id", "actor_account_id", "type", "before", "after", "created_at")
-    VALUES
-      (${id}::uuid, ${params.organizationId}::uuid, ${params.teamId}::uuid, ${params.issueId}::uuid,
-       ${params.actorAccountId}::uuid, ${params.type}::"public"."IssueEventType",
-       ${beforeJson}::jsonb, ${afterJson}::jsonb, ${params.createdAt})
+    SELECT u."id", u."organization_id", u."team_id", u."issue_id", u."actor_account_id",
+           u."type"::"public"."IssueEventType", u."before"::jsonb, u."after"::jsonb, u."created_at"
+    FROM unnest(
+      ${ids}::uuid[],
+      ${orgIds}::uuid[],
+      ${teamIds}::uuid[],
+      ${issueIds}::uuid[],
+      ${actorIds}::uuid[],
+      ${types}::text[],
+      ${befores}::text[],
+      ${afters}::text[],
+      ${createdAts}::timestamptz(3)[]
+    ) AS u(
+      "id", "organization_id", "team_id", "issue_id", "actor_account_id",
+      "type", "before", "after", "created_at"
+    )
   `;
 }
 
@@ -480,13 +514,27 @@ async function ensureIssueSubscribers(
   params: { organizationId: string; issueId: string; accountIds: readonly string[]; createdAt: Date },
 ): Promise<void> {
   const unique = [...new Set(params.accountIds)];
-  for (const accountId of unique) {
-    await tx.$executeRaw`
-      INSERT INTO "public"."issue_subscribers" ("issue_id", "account_id", "organization_id", "created_at")
-      VALUES (${params.issueId}::uuid, ${accountId}::uuid, ${params.organizationId}::uuid, ${params.createdAt})
-      ON CONFLICT ("issue_id", "account_id") DO NOTHING
-    `;
-  }
+  if (unique.length === 0) return;
+  await tx.$executeRaw`
+    INSERT INTO "public"."issue_subscribers" ("issue_id", "account_id", "organization_id", "created_at")
+    SELECT ${params.issueId}::uuid, u."account_id", ${params.organizationId}::uuid, ${params.createdAt}
+    FROM unnest(${unique}::uuid[]) AS u("account_id")
+    ON CONFLICT ("issue_id", "account_id") DO NOTHING
+  `;
+}
+
+async function insertCommentMentions(
+  tx: Tx,
+  params: { organizationId: string; commentId: string; accountIds: readonly string[]; createdAt: Date },
+): Promise<void> {
+  const unique = [...new Set(params.accountIds)];
+  if (unique.length === 0) return;
+  await tx.$executeRaw`
+    INSERT INTO "public"."comment_mentions" ("comment_id", "account_id", "organization_id", "created_at")
+    SELECT ${params.commentId}::uuid, u."account_id", ${params.organizationId}::uuid, ${params.createdAt}
+    FROM unnest(${unique}::uuid[]) AS u("account_id")
+    ON CONFLICT ("comment_id", "account_id") DO NOTHING
+  `;
 }
 
 async function insertInboxItems(
@@ -501,18 +549,48 @@ async function insertInboxItems(
     createdAt: Date;
   }[],
 ): Promise<void> {
-  for (const item of items) {
-    if (item.recipientAccountId.toLowerCase() === item.actorAccountId.toLowerCase()) continue;
-    const id = uuidv7(item.createdAt.getTime());
-    await tx.$executeRaw`
-      INSERT INTO "public"."inbox_items"
-        ("id", "organization_id", "recipient_account_id", "kind", "issue_id", "actor_account_id", "comment_id", "created_at")
-      VALUES
-        (${id}::uuid, ${item.organizationId}::uuid, ${item.recipientAccountId}::uuid,
-         ${item.kind}::"public"."InboxItemKind", ${item.issueId}::uuid, ${item.actorAccountId}::uuid,
-         ${item.commentId}::uuid, ${item.createdAt})
-    `;
+  const filtered = items.filter((item) => item.recipientAccountId.toLowerCase() !== item.actorAccountId.toLowerCase());
+  if (filtered.length === 0) return;
+
+  const ids: string[] = [];
+  const orgIds: string[] = [];
+  const recipientIds: string[] = [];
+  const kinds: string[] = [];
+  const issueIds: string[] = [];
+  const actorIds: string[] = [];
+  const commentIds: (string | null)[] = [];
+  const createdAts: string[] = [];
+
+  for (const item of filtered) {
+    ids.push(uuidv7(item.createdAt.getTime()));
+    orgIds.push(item.organizationId);
+    recipientIds.push(item.recipientAccountId);
+    kinds.push(item.kind);
+    issueIds.push(item.issueId);
+    actorIds.push(item.actorAccountId);
+    commentIds.push(item.commentId);
+    createdAts.push(item.createdAt.toISOString());
   }
+
+  await tx.$executeRaw`
+    INSERT INTO "public"."inbox_items"
+      ("id", "organization_id", "recipient_account_id", "kind", "issue_id", "actor_account_id", "comment_id", "created_at")
+    SELECT u."id", u."organization_id", u."recipient_account_id", u."kind"::"public"."InboxItemKind",
+           u."issue_id", u."actor_account_id", u."comment_id", u."created_at"
+    FROM unnest(
+      ${ids}::uuid[],
+      ${orgIds}::uuid[],
+      ${recipientIds}::uuid[],
+      ${kinds}::text[],
+      ${issueIds}::uuid[],
+      ${actorIds}::uuid[],
+      ${commentIds}::uuid[],
+      ${createdAts}::timestamptz(3)[]
+    ) AS u(
+      "id", "organization_id", "recipient_account_id", "kind",
+      "issue_id", "actor_account_id", "comment_id", "created_at"
+    )
+  `;
 }
 
 interface RawCommentRow {
@@ -1233,23 +1311,25 @@ export const prismaIssuesStore: IssuesStore = {
       }
 
       // 5. Historia, automatyczni obserwujący oraz powiadomienie o przypisaniu w tej samej transakcji
-      await insertIssueEvent(tx, {
-        organizationId: actor.organizationId,
-        teamId: input.teamId,
-        issueId: id,
-        actorAccountId: actor.accountId,
-        type: "CREATED",
-        before: null,
-        after: {
-          identifier: formatIssueIdentifier(teamKey, number),
-          title: input.title,
-          stateId: state.id,
-          stateName: state.name,
-          priority: input.priority,
-          assigneeAccountId: input.assigneeAccountId,
+      await insertIssueEvents(tx, [
+        {
+          organizationId: actor.organizationId,
+          teamId: input.teamId,
+          issueId: id,
+          actorAccountId: actor.accountId,
+          type: "CREATED",
+          before: null,
+          after: {
+            identifier: formatIssueIdentifier(teamKey, number),
+            title: input.title,
+            stateId: state.id,
+            stateName: state.name,
+            priority: input.priority,
+            assigneeAccountId: input.assigneeAccountId,
+          },
+          createdAt: now,
         },
-        createdAt: now,
-      });
+      ]);
 
       await ensureIssueSubscribers(tx, {
         organizationId: actor.organizationId,
@@ -1328,8 +1408,32 @@ export const prismaIssuesStore: IssuesStore = {
     issueId,
     input: UpdateIssueStoreInput,
     readableTeamIds: TeamFilterScope,
-  ): Promise<IssueDetail | null> {
+  ): Promise<UpdateIssueStoreResult | null> {
     return withUser(getDb(), actor, async (tx) => {
+      // Przy zmianie rodzica najpierw bierzemy blokadę hierarchii zespołu (ta sama kolejność co w softDeleteIssue),
+      // aby uniknąć zakleszczenia między blokadą doradczą a blokadą wiersza FOR UPDATE.
+      if (input.parentId !== undefined && input.parentId !== null) {
+        const pre = await tx.$queryRaw<{ teamId: string }[]>`
+          SELECT i."team_id"::text AS "teamId"
+          FROM "public"."issues" i
+          JOIN "public"."teams" t ON t."id" = i."team_id"
+          WHERE i."id" = ${issueId}::uuid AND i."deleted_at" IS NULL AND t."archived_at" IS NULL
+        `;
+        if (pre.length === 0) return null;
+        await lockTeamIssueHierarchy(tx, pre[0]!.teamId);
+      }
+
+      // Blokada wiersza FOR UPDATE serializuje równoległe aktualizacje i miękkie usunięcie tego samego zadania;
+      // różnicę historii, zmiany etykiet oraz fan-out ASSIGNED liczymy wyłącznie z zablokowanego wiersza.
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT i."id"::text AS "id"
+        FROM "public"."issues" i
+        JOIN "public"."teams" t ON t."id" = i."team_id"
+        WHERE i."id" = ${issueId}::uuid AND i."deleted_at" IS NULL AND t."archived_at" IS NULL
+        FOR UPDATE OF i
+      `;
+      if (locked.length === 0) return null;
+
       const existing = await tx.issue.findFirst({
         where: { id: issueId, deletedAt: null, team: { archivedAt: null } },
         include: {
@@ -1343,10 +1447,6 @@ export const prismaIssuesStore: IssuesStore = {
         },
       });
       if (!existing) return null;
-
-      if (input.parentId !== undefined && input.parentId !== null) {
-        await lockTeamIssueHierarchy(tx, existing.teamId);
-      }
 
       const now = new Date();
       let nextStateSnapshot = { id: existing.state.id, name: existing.state.name };
@@ -1438,6 +1538,7 @@ export const prismaIssuesStore: IssuesStore = {
               organizationId: actor.organizationId,
               teamId: existing.teamId,
             })),
+            skipDuplicates: true,
           });
         }
       }
@@ -1493,8 +1594,9 @@ export const prismaIssuesStore: IssuesStore = {
         },
       );
 
-      for (const event of pendingEvents) {
-        await insertIssueEvent(tx, {
+      await insertIssueEvents(
+        tx,
+        pendingEvents.map((event) => ({
           organizationId: actor.organizationId,
           teamId: existing.teamId,
           issueId,
@@ -1503,8 +1605,8 @@ export const prismaIssuesStore: IssuesStore = {
           before: event.before,
           after: event.after,
           createdAt: now,
-        });
-      }
+        })),
+      );
 
       if (input.assigneeAccountId !== undefined) {
         if (input.assigneeAccountId !== null && input.assigneeAccountId !== existing.assigneeAccountId) {
@@ -1536,7 +1638,8 @@ export const prismaIssuesStore: IssuesStore = {
         }
       }
 
-      return hydrateIssueDetail(tx, issueId, readableTeamIds, actor.accountId);
+      const detail = await hydrateIssueDetail(tx, issueId, readableTeamIds, actor.accountId);
+      return detail ? { issue: detail, previousAssigneeAccountId: existing.assigneeAccountId } : null;
     });
   },
 
@@ -1560,6 +1663,8 @@ export const prismaIssuesStore: IssuesStore = {
         data: { deletedAt: now, parentId: null },
       });
       if (updated.count === 0) return false;
+
+      const eventsToInsert: PendingIssueEventRow[] = [];
       if (children.length > 0) {
         const deletedIdentifier = formatIssueIdentifier(target.team.key, target.number);
         await tx.issue.updateMany({
@@ -1567,7 +1672,7 @@ export const prismaIssuesStore: IssuesStore = {
           data: { parentId: null },
         });
         for (const child of children) {
-          await insertIssueEvent(tx, {
+          eventsToInsert.push({
             organizationId: actor.organizationId,
             teamId: child.teamId,
             issueId: child.id,
@@ -1579,7 +1684,7 @@ export const prismaIssuesStore: IssuesStore = {
           });
         }
       }
-      await insertIssueEvent(tx, {
+      eventsToInsert.push({
         organizationId: actor.organizationId,
         teamId: target.teamId,
         issueId,
@@ -1589,6 +1694,7 @@ export const prismaIssuesStore: IssuesStore = {
         after: { deletedAt: now.toISOString() },
         createdAt: now,
       });
+      await insertIssueEvents(tx, eventsToInsert);
       return true;
     });
   },
@@ -1652,37 +1758,40 @@ export const prismaIssuesStore: IssuesStore = {
         const targetIdentifier = formatIssueIdentifier(created.relatedIssue.team.key, created.relatedIssue.number);
         const inverseType = created.type === "BLOCKS" ? "BLOCKED_BY" : created.type;
 
-        await insertIssueEvent(tx, {
-          organizationId: actor.organizationId,
-          teamId: created.issue.teamId,
-          issueId: created.issue.id,
-          actorAccountId: actor.accountId,
-          type: "RELATION_ADDED",
-          before: null,
-          after: {
-            relationId: created.id,
-            type: created.type,
-            relatedIssueId: created.relatedIssue.id,
-            relatedIssueIdentifier: targetIdentifier,
+        await insertIssueEvents(tx, [
+          {
+            organizationId: actor.organizationId,
+            teamId: created.issue.teamId,
+            issueId: created.issue.id,
+            actorAccountId: actor.accountId,
+            type: "RELATION_ADDED",
+            before: null,
+            after: {
+              relationId: created.id,
+              type: created.type,
+              relatedIssueId: created.relatedIssue.id,
+              relatedIssueTeamId: created.relatedIssue.teamId,
+              relatedIssueIdentifier: targetIdentifier,
+            },
+            createdAt: now,
           },
-          createdAt: now,
-        });
-
-        await insertIssueEvent(tx, {
-          organizationId: actor.organizationId,
-          teamId: created.relatedIssue.teamId,
-          issueId: created.relatedIssue.id,
-          actorAccountId: actor.accountId,
-          type: "RELATION_ADDED",
-          before: null,
-          after: {
-            relationId: created.id,
-            type: inverseType,
-            relatedIssueId: created.issue.id,
-            relatedIssueIdentifier: sourceIdentifier,
+          {
+            organizationId: actor.organizationId,
+            teamId: created.relatedIssue.teamId,
+            issueId: created.relatedIssue.id,
+            actorAccountId: actor.accountId,
+            type: "RELATION_ADDED",
+            before: null,
+            after: {
+              relationId: created.id,
+              type: inverseType,
+              relatedIssueId: created.issue.id,
+              relatedIssueTeamId: created.issue.teamId,
+              relatedIssueIdentifier: sourceIdentifier,
+            },
+            createdAt: now,
           },
-          createdAt: now,
-        });
+        ]);
 
         const other = created.issueId === input.viewerIssueId ? created.relatedIssue : created.issue;
         return toIssueRelationView(input.viewerIssueId, created, serializeIssueReference(other));
@@ -1738,37 +1847,40 @@ export const prismaIssuesStore: IssuesStore = {
       const targetIdentifier = formatIssueIdentifier(existing.relatedIssue.team.key, existing.relatedIssue.number);
       const inverseType = existing.type === "BLOCKS" ? "BLOCKED_BY" : existing.type;
 
-      await insertIssueEvent(tx, {
-        organizationId: actor.organizationId,
-        teamId: existing.issue.teamId,
-        issueId: existing.issue.id,
-        actorAccountId: actor.accountId,
-        type: "RELATION_REMOVED",
-        before: {
-          relationId: existing.id,
-          type: existing.type,
-          relatedIssueId: existing.relatedIssue.id,
-          relatedIssueIdentifier: targetIdentifier,
+      await insertIssueEvents(tx, [
+        {
+          organizationId: actor.organizationId,
+          teamId: existing.issue.teamId,
+          issueId: existing.issue.id,
+          actorAccountId: actor.accountId,
+          type: "RELATION_REMOVED",
+          before: {
+            relationId: existing.id,
+            type: existing.type,
+            relatedIssueId: existing.relatedIssue.id,
+            relatedIssueTeamId: existing.relatedIssue.teamId,
+            relatedIssueIdentifier: targetIdentifier,
+          },
+          after: null,
+          createdAt: now,
         },
-        after: null,
-        createdAt: now,
-      });
-
-      await insertIssueEvent(tx, {
-        organizationId: actor.organizationId,
-        teamId: existing.relatedIssue.teamId,
-        issueId: existing.relatedIssue.id,
-        actorAccountId: actor.accountId,
-        type: "RELATION_REMOVED",
-        before: {
-          relationId: existing.id,
-          type: inverseType,
-          relatedIssueId: existing.issue.id,
-          relatedIssueIdentifier: sourceIdentifier,
+        {
+          organizationId: actor.organizationId,
+          teamId: existing.relatedIssue.teamId,
+          issueId: existing.relatedIssue.id,
+          actorAccountId: actor.accountId,
+          type: "RELATION_REMOVED",
+          before: {
+            relationId: existing.id,
+            type: inverseType,
+            relatedIssueId: existing.issue.id,
+            relatedIssueTeamId: existing.issue.teamId,
+            relatedIssueIdentifier: sourceIdentifier,
+          },
+          after: null,
+          createdAt: now,
         },
-        after: null,
-        createdAt: now,
-      });
+      ]);
 
       return true;
     });
@@ -1940,13 +2052,12 @@ export const prismaIssuesStore: IssuesStore = {
                   "deleted_at" AS "deletedAt"
       `;
 
-      for (const accountId of input.mentionedAccountIds) {
-        await tx.$executeRaw`
-          INSERT INTO "public"."comment_mentions" ("comment_id", "account_id", "organization_id", "created_at")
-          VALUES (${commentId}::uuid, ${accountId}::uuid, ${actor.organizationId}::uuid, ${now})
-          ON CONFLICT ("comment_id", "account_id") DO NOTHING
-        `;
-      }
+      await insertCommentMentions(tx, {
+        organizationId: actor.organizationId,
+        commentId,
+        accountIds: input.mentionedAccountIds,
+        createdAt: now,
+      });
 
       // Autor oraz wspomniane osoby stają się obserwującymi zadania w tej samej transakcji
       await ensureIssueSubscribers(tx, {
@@ -2049,13 +2160,12 @@ export const prismaIssuesStore: IssuesStore = {
         DELETE FROM "public"."comment_mentions"
         WHERE "comment_id" = ${input.commentId}::uuid
       `;
-      for (const accountId of input.mentionedAccountIds) {
-        await tx.$executeRaw`
-          INSERT INTO "public"."comment_mentions" ("comment_id", "account_id", "organization_id", "created_at")
-          VALUES (${input.commentId}::uuid, ${accountId}::uuid, ${actor.organizationId}::uuid, ${now})
-          ON CONFLICT ("comment_id", "account_id") DO NOTHING
-        `;
-      }
+      await insertCommentMentions(tx, {
+        organizationId: actor.organizationId,
+        commentId: input.commentId,
+        accountIds: input.mentionedAccountIds,
+        createdAt: now,
+      });
 
       if (input.mentionedAccountIds.length > 0) {
         await ensureIssueSubscribers(tx, {
@@ -2166,6 +2276,9 @@ export const prismaIssuesStore: IssuesStore = {
   // ── Aktywność zadania (historia + komentarze chronologicznie, najstarsze pierwsze) ──
 
   async listIssueActivity(actor, params: ListIssueActivityStoreParams): Promise<PaginatedResult<IssueActivityItem>> {
+    if (params.readableTeamIds !== "ALL" && params.readableTeamIds.length === 0) {
+      return { items: [], nextCursor: null };
+    }
     return withUser(getDb(), actor, async (tx) => {
       const cursorWhere = params.cursor
         ? (() => {
@@ -2204,21 +2317,43 @@ export const prismaIssuesStore: IssuesStore = {
 
       const eventsById = new Map<string, IssueEvent>();
       if (eventIds.length > 0) {
-        const eventRows = await tx.$queryRaw<RawEventRow[]>`
-          SELECT "id"::text AS "id",
-                 "organization_id"::text AS "organizationId",
-                 "team_id"::text AS "teamId",
-                 "issue_id"::text AS "issueId",
-                 "actor_account_id"::text AS "actorAccountId",
-                 "type"::text AS "type",
-                 "before",
-                 "after",
-                 "created_at" AS "createdAt"
-          FROM "public"."issue_events"
-          WHERE "id" = ANY(${eventIds}::uuid[])
+        type RawActivityEventRow = RawEventRow & {
+          resolvedRelatedTeamId: string | null;
+          resolvedParentBeforeTeamId: string | null;
+          resolvedParentAfterTeamId: string | null;
+        };
+        const eventRows = await tx.$queryRaw<RawActivityEventRow[]>`
+          SELECT e."id"::text AS "id",
+                 e."organization_id"::text AS "organizationId",
+                 e."team_id"::text AS "teamId",
+                 e."issue_id"::text AS "issueId",
+                 e."actor_account_id"::text AS "actorAccountId",
+                 e."type"::text AS "type",
+                 e."before",
+                 e."after",
+                 e."created_at" AS "createdAt",
+                 rel_i."team_id"::text AS "resolvedRelatedTeamId",
+                 pb_i."team_id"::text AS "resolvedParentBeforeTeamId",
+                 pa_i."team_id"::text AS "resolvedParentAfterTeamId"
+          FROM "public"."issue_events" e
+          LEFT JOIN "public"."issues" rel_i
+            ON e."type" IN ('RELATION_ADDED'::"public"."IssueEventType", 'RELATION_REMOVED'::"public"."IssueEventType")
+           AND rel_i."id" = NULLIF(COALESCE(e."after"->>'relatedIssueId', e."before"->>'relatedIssueId'), '')::uuid
+          LEFT JOIN "public"."issues" pb_i
+            ON e."type" = 'PARENT_CHANGED'::"public"."IssueEventType"
+           AND pb_i."id" = NULLIF(e."before"->>'parentId', '')::uuid
+          LEFT JOIN "public"."issues" pa_i
+            ON e."type" = 'PARENT_CHANGED'::"public"."IssueEventType"
+           AND pa_i."id" = NULLIF(e."after"->>'parentId', '')::uuid
+          WHERE e."id" = ANY(${eventIds}::uuid[])
         `;
         for (const row of eventRows) {
-          eventsById.set(row.id, serializeIssueEvent(row));
+          const event = redactIssueEvent(serializeIssueEvent(row), params.readableTeamIds, {
+            relatedIssueTeamId: row.resolvedRelatedTeamId,
+            parentBeforeTeamId: row.resolvedParentBeforeTeamId,
+            parentAfterTeamId: row.resolvedParentAfterTeamId,
+          });
+          eventsById.set(row.id, event);
         }
       }
 
@@ -2313,6 +2448,7 @@ export const prismaIssuesStore: IssuesStore = {
         Prisma.sql`ii."archived_at" IS NULL`,
         Prisma.sql`i."deleted_at" IS NULL`,
         Prisma.sql`t."archived_at" IS NULL`,
+        Prisma.sql`(ii."comment_id" IS NULL OR c."deleted_at" IS NULL)`,
       ];
       if (params.readableTeamIds !== "ALL") {
         conditions.push(Prisma.sql`i."team_id" = ANY(${params.readableTeamIds}::uuid[])`);
@@ -2383,11 +2519,13 @@ export const prismaIssuesStore: IssuesStore = {
         FROM "public"."inbox_items" ii
         JOIN "public"."issues" i ON i."id" = ii."issue_id"
         JOIN "public"."teams" t ON t."id" = i."team_id"
+        LEFT JOIN "public"."issue_comments" c ON c."id" = ii."comment_id"
         WHERE ii."recipient_account_id" = ${actor.accountId}::uuid
           AND ii."read_at" IS NULL
           AND ii."archived_at" IS NULL
           AND i."deleted_at" IS NULL
           AND t."archived_at" IS NULL
+          AND (ii."comment_id" IS NULL OR c."deleted_at" IS NULL)
           AND ${teamFilter}
       `;
       return rows[0]?.count ?? 0;
@@ -2434,6 +2572,7 @@ export const prismaIssuesStore: IssuesStore = {
           AND ii."recipient_account_id" = ${actor.accountId}::uuid
           AND i."deleted_at" IS NULL
           AND t."archived_at" IS NULL
+          AND (ii."comment_id" IS NULL OR c."deleted_at" IS NULL)
           AND ${teamFilter}
         FOR UPDATE OF ii
       `;
@@ -2482,6 +2621,13 @@ export const prismaIssuesStore: IssuesStore = {
           AND ii."archived_at" IS NULL
           AND i."deleted_at" IS NULL
           AND t."archived_at" IS NULL
+          AND (
+            ii."comment_id" IS NULL
+            OR EXISTS (
+              SELECT 1 FROM "public"."issue_comments" c
+              WHERE c."id" = ii."comment_id" AND c."deleted_at" IS NULL
+            )
+          )
           AND ${teamFilter}
       `;
       return updated;

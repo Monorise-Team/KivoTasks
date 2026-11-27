@@ -292,11 +292,13 @@ export function buildIssueUpdateEvents(
     });
   }
 
-  if ((before.description ?? null) !== (after.description ?? null)) {
+  const beforeDesc = before.description === null || before.description === "" ? null : before.description;
+  const afterDesc = after.description === null || after.description === "" ? null : after.description;
+  if (beforeDesc !== afterDesc) {
     events.push({
       type: "DESCRIPTION_CHANGED",
-      before: { hasDescription: Boolean(before.description && before.description.length > 0) },
-      after: { hasDescription: Boolean(after.description && after.description.length > 0) },
+      before: { hasDescription: beforeDesc !== null },
+      after: { hasDescription: afterDesc !== null },
     });
   }
 
@@ -359,6 +361,108 @@ export function buildIssueUpdateEvents(
   }
 
   return events;
+}
+
+export interface IssueEventTeamRefs {
+  readonly relatedIssueTeamId?: string | null;
+  readonly parentBeforeTeamId?: string | null;
+  readonly parentAfterTeamId?: string | null;
+}
+
+function readTeamIdField(payload: IssueEventPayload, key: string): string | null {
+  if (!payload) return null;
+  const value = payload[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function isReadableTeam(teamId: string | null, readableTeamIds: "ALL" | readonly string[]): boolean {
+  if (readableTeamIds === "ALL") return true;
+  return teamId !== null && readableTeamIds.includes(teamId);
+}
+
+function redactRelationPayload(payload: IssueEventPayload): IssueEventPayload {
+  if (!payload) return null;
+  const redacted: Record<string, unknown> = { ...payload };
+  redacted.relatedIssueId = null;
+  redacted.relatedIssueTeamId = null;
+  redacted.relatedIssueIdentifier = null;
+  redacted.relatedIssueTitle = null;
+  if ("title" in redacted) {
+    redacted.title = null;
+  }
+  return redacted;
+}
+
+function redactParentPayload(payload: IssueEventPayload): IssueEventPayload {
+  if (!payload) return null;
+  const redacted: Record<string, unknown> = { ...payload };
+  redacted.parentId = null;
+  redacted.parentTeamId = null;
+  redacted.parentIdentifier = null;
+  redacted.parentTitle = null;
+  redacted.redacted = true;
+  if ("title" in redacted) {
+    redacted.title = null;
+  }
+  return redacted;
+}
+
+/**
+ * Redaguje w zdarzeniu historii odwołania do zadań z zespołów spoza `readableTeamIds`,
+ * zamieniając identyfikator, tytuł oraz ID zadania/zespołu na `null` (fail-closed, gdy zespół nieznany).
+ */
+export function redactIssueEvent<
+  T extends { readonly type: IssueEventType; readonly before: IssueEventPayload; readonly after: IssueEventPayload },
+>(event: T, readableTeamIds: "ALL" | readonly string[], refs?: IssueEventTeamRefs): T {
+  if (readableTeamIds === "ALL") return event;
+
+  if (event.type === "RELATION_ADDED") {
+    const teamId = refs?.relatedIssueTeamId ?? readTeamIdField(event.after, "relatedIssueTeamId");
+    if (!isReadableTeam(teamId, readableTeamIds)) {
+      return { ...event, after: redactRelationPayload(event.after) };
+    }
+    return event;
+  }
+
+  if (event.type === "RELATION_REMOVED") {
+    const teamId = refs?.relatedIssueTeamId ?? readTeamIdField(event.before, "relatedIssueTeamId");
+    if (!isReadableTeam(teamId, readableTeamIds)) {
+      return { ...event, before: redactRelationPayload(event.before) };
+    }
+    return event;
+  }
+
+  if (event.type === "PARENT_CHANGED") {
+    let nextBefore = event.before;
+    let nextAfter = event.after;
+    let changed = false;
+
+    const beforeHasParent = Boolean(
+      event.before && (event.before.parentId !== null || event.before.parentIdentifier !== null),
+    );
+    if (beforeHasParent) {
+      const beforeTeamId = refs?.parentBeforeTeamId ?? readTeamIdField(event.before, "parentTeamId");
+      if (!isReadableTeam(beforeTeamId, readableTeamIds)) {
+        nextBefore = redactParentPayload(event.before);
+        changed = true;
+      }
+    }
+
+    const afterHasParent = Boolean(
+      event.after && (event.after.parentId !== null || event.after.parentIdentifier !== null),
+    );
+    if (afterHasParent) {
+      const afterTeamId = refs?.parentAfterTeamId ?? readTeamIdField(event.after, "parentTeamId");
+      if (!isReadableTeam(afterTeamId, readableTeamIds)) {
+        nextAfter = redactParentPayload(event.after);
+        changed = true;
+      }
+    }
+
+    return changed ? { ...event, before: nextBefore, after: nextAfter } : event;
+  }
+
+  return event;
 }
 
 // ── Stronicowanie kursorowe (komentarze, aktywność, skrzynka) ───────────────
